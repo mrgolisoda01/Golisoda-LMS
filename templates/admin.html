@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin · Mr. Golisoda Training</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+  <div class="topbar"><div class="wrap">
+    <div class="brand"><span class="dot"></span> Mr. Golisoda Training · Admin</div>
+    <button class="signout" onclick="doSignOut()">Sign out</button>
+  </div></div>
+
+  <div class="wrap page">
+    <div class="hero">
+      <h2>Admin Dashboard</h2>
+      <p>Approve new joiners and view your team. New sign-ups appear below as “pending”.</p>
+    </div>
+
+    <div class="sectiontitle">Pending Approvals ({{ pending|length }})</div>
+    {% if pending %}
+    <table class="tbl">
+      <tr><th>Name</th><th>Employee ID</th><th>Designation</th><th>Phone</th><th>Action</th></tr>
+      {% for u in pending %}
+      <tr id="row-{{ u['emp_id'] }}">
+        <td>{{ u['name'] }}</td>
+        <td>{{ u['emp_id'] }}</td>
+        <td>{{ u['designation'] }}</td>
+        <td>{{ u['phone'] }}</td>
+        <td>
+          <button class="mini mini-ok" onclick="approve('{{ u['emp_id'] }}')">Approve</button>
+          <button class="mini mini-no" onclick="reject('{{ u['emp_id'] }}')">Reject</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p style="color:var(--muted)">No pending approvals right now.</p>
+    {% endif %}
+
+    <div class="sectiontitle">Approved Staff ({{ approved|length }})</div>
+    {% if approved %}
+    <table class="tbl">
+      <tr><th>Name</th><th>Employee ID</th><th>Designation</th><th>Phone</th></tr>
+      {% for u in approved %}
+      <tr>
+        <td>{{ u['name'] }}</td>
+        <td>{{ u['emp_id'] }}</td>
+        <td>{{ u['designation'] }}</td>
+        <td>{{ u['phone'] }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p style="color:var(--muted)">No approved staff yet.</p>
+    {% endif %}
+  </div>
+
+<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+</body>
+</html>

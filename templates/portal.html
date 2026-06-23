@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mr. Golisoda Training Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+  <div class="topbar"><div class="wrap">
+    <div class="brand"><span class="dot"></span> Mr. Golisoda Training</div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <span class="who">{{ user['name'] }} · {{ user['designation'] }}</span>
+      <button class="signout" onclick="doSignOut()">Sign out</button>
+    </div>
+  </div></div>
+
+  <div class="wrap">
+    <!-- HOME / GRID -->
+    <div id="p-home" class="page">
+      <div class="hero">
+        <h2>Welcome, {{ user['name'].split(' ')[0] }}</h2>
+        <p>Complete Induction first to earn certification. Pass each module's assessment at 90% to unlock the next.</p>
+      </div>
+      <div class="sectiontitle">Induction — for everyone</div>
+      <div class="grid" id="ind-grid"></div>
+    </div>
+
+    <!-- VIEWER -->
+    <div id="p-view" class="page hide">
+      <div class="crumb" onclick="goHome()">‹ Back to Modules</div>
+      <div id="slidearea"></div>
+    </div>
+
+    <!-- QUIZ -->
+    <div id="p-quiz" class="page hide" style="max-width:720px">
+      <div class="crumb" onclick="goHome()">‹ Back to Modules</div>
+      <div id="quizarea"></div>
+    </div>
+  </div>
+
+<script src="{{ url_for('static', filename='js/content.js') }}"></script>
+<script src="{{ url_for('static', filename='js/portal.js') }}"></script>
+</body>
+</html>
