@@ -43,6 +43,10 @@ app = Flask(__name__)
 # IMPORTANT: change this secret to any long random string before going live
 app.secret_key = "CHANGE-THIS-TO-A-LONG-RANDOM-SECRET-STRING-2026"
 
+# NOTE: init_db() is also called at the bottom (import time) so that the
+# database and default ADMIN account are created when Render runs the app
+# with gunicorn — not only when run directly with `python app.py`.
+
 DB_PATH = os.path.join(os.path.dirname(__file__), "golisoda.db")
 
 DEFAULT_ADMIN_ID = "ADMIN"
@@ -288,8 +292,11 @@ def api_reject():
 # ---------------------------------------------------------------
 #  Start
 # ---------------------------------------------------------------
+# Create the database + default ADMIN account as soon as the app is
+# imported. This runs both for `python app.py` AND for gunicorn (Render).
+init_db()
+
 if __name__ == "__main__":
-    init_db()
     # host=0.0.0.0 lets other devices on the network reach it too
     import os
     port = int(os.environ.get("PORT", 5000))
