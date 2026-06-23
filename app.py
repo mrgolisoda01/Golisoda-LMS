@@ -71,6 +71,18 @@ def close_db(exception):
         db.close()
 
 
+# Guarantee the database + tables + default admin exist BEFORE handling any
+# request. This is bulletproof on Render/gunicorn: it runs once, lazily, and
+# can never leave the 'users' table missing.
+_db_ready = False
+@app.before_request
+def _ensure_db():
+    global _db_ready
+    if not _db_ready:
+        init_db()
+        _db_ready = True
+
+
 def init_db():
     """Create tables and the default admin if they do not exist."""
     db = sqlite3.connect(DB_PATH)
