@@ -109,6 +109,47 @@ def init_db():
         )
     """)
 
+    # ---- Assessment Engine tables (Delivery 3) ----
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS assessments (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            title         TEXT NOT NULL,
+            description   TEXT,
+            roles         TEXT NOT NULL DEFAULT 'all',   -- comma list e.g. "BDE,BDM" or "all"
+            num_questions INTEGER NOT NULL DEFAULT 10,    -- how many each learner gets
+            pass_percent  INTEGER NOT NULL DEFAULT 90,
+            time_limit    INTEGER NOT NULL DEFAULT 0,     -- minutes; 0 = untimed
+            active        INTEGER NOT NULL DEFAULT 1,
+            created_by    TEXT,
+            created_at    TEXT
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS questions (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            assessment_id INTEGER NOT NULL,
+            question      TEXT NOT NULL,
+            opt_a         TEXT NOT NULL,
+            opt_b         TEXT NOT NULL,
+            opt_c         TEXT,
+            opt_d         TEXT,
+            correct       TEXT NOT NULL,                  -- 'A'/'B'/'C'/'D'
+            category      TEXT
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS assessment_results (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            assessment_id INTEGER NOT NULL,
+            emp_id        TEXT NOT NULL,
+            score         INTEGER NOT NULL,
+            total         INTEGER NOT NULL,
+            percent       INTEGER NOT NULL,
+            passed        INTEGER NOT NULL,
+            taken_at      TEXT
+        )
+    """)
+
     # --- Safe migration: add columns that may not exist on older DBs ---
     if not _column_exists(db, "users", "must_reset"):
         db.execute("ALTER TABLE users ADD COLUMN must_reset INTEGER NOT NULL DEFAULT 0")
@@ -181,6 +222,12 @@ def portal_page():
 @admin_required
 def admin_page():
     return render_template("admin.html", user=current_user())
+
+
+@app.route("/assessment")
+@login_required
+def assessment_page():
+    return render_template("assessment.html", user=current_user())
 
 
 # ---------------------------------------------------------------
@@ -471,6 +518,281 @@ def api_admin_bulk_add():
     db.commit()
     return jsonify(ok=True, added=added, skipped=skipped, errors=errors,
                    msg=f"Added {added}, skipped {skipped} (already existed).")
+
+
+# ===============================================================
+#  NEW — DELIVERY 3: Assessment Engine
+# ===============================================================
+import random as _random
+
+ROLE_CHOICES = ["BDE", "BDM", "State Head", "RSM", "NSM", "Corporate", "Back Office"]
+
+
+def _user_role_label(u):
+    """Map a user to the assessment role label using their designation."""
+    return (u["designation"] or "").strip()
+
+
+def _assessment_allowed_for(assessment, u):
+    """Check if this user may take this assessment based on roles field."""
+    roles = (assessment["roles"] or "all").strip().lower()
+    if roles in ("", "all"):
+        return True
+    desg = (_user_role_label(u) or "").lower()
+    allowed = [r.strip().lower() for r in roles.split(",")]
+    return any(a and a in desg for a in allowed)
+
+
+@app.route("/api/admin/assessments")
+@admin_required
+def api_admin_assessments():
+    """List all assessments with question counts and attempt counts."""
+    db = get_db()
+    rows = db.execute("SELECT * FROM assessments ORDER BY created_at DESC").fetchall()
+    out = []
+    for a in rows:
+        qn = db.execute("SELECT COUNT(*) c FROM questions WHERE assessment_id=?", (a["id"],)).fetchone()["c"]
+        at = db.execute("SELECT COUNT(*) c FROM assessment_results WHERE assessment_id=?", (a["id"],)).fetchone()["c"]
+        d = dict(a); d["question_count"] = qn; d["attempt_count"] = at
+        out.append(d)
+    return jsonify(ok=True, assessments=out, role_choices=ROLE_CHOICES)
+
+
+@app.route("/api/admin/create-assessment", methods=["POST"])
+@admin_required
+def api_admin_create_assessment():
+    """Create an assessment and load its question pool from CSV."""
+    d = request.get_json(force=True)
+    title = (d.get("title") or "").strip()
+    desc = (d.get("description") or "").strip()
+    roles = (d.get("roles") or "all").strip() or "all"
+    csv_text = d.get("csv") or ""
+    try:
+        num_q = int(d.get("num_questions") or 10)
+    except (ValueError, TypeError):
+        num_q = 10
+    try:
+        pass_pct = int(d.get("pass_percent") or 90)
+    except (ValueError, TypeError):
+        pass_pct = 90
+    if pass_pct < 90:
+        pass_pct = 90  # enforce the "serious" minimum
+    if pass_pct > 100:
+        pass_pct = 100
+    try:
+        time_limit = int(d.get("time_limit") or 0)
+    except (ValueError, TypeError):
+        time_limit = 0
+
+    if not title:
+        return jsonify(ok=False, msg="Please give the assessment a title."), 400
+    if not csv_text.strip():
+        return jsonify(ok=False, msg="Please paste the question CSV."), 400
+
+    # Parse questions
+    reader = csv.DictReader(io.StringIO(csv_text))
+    parsed, errors = [], []
+    for i, raw in enumerate(reader, start=2):
+        row = {(k or "").strip().lower(): (v or "").strip() for k, v in raw.items()}
+        q = row.get("question", "")
+        a = row.get("option_a") or row.get("opt_a") or row.get("a", "")
+        b = row.get("option_b") or row.get("opt_b") or row.get("b", "")
+        cc = row.get("option_c") or row.get("opt_c") or row.get("c", "")
+        dd = row.get("option_d") or row.get("opt_d") or row.get("d", "")
+        correct = (row.get("correct") or row.get("answer") or "").strip().upper()
+        cat = row.get("category", "")
+        if not q or not a or not b:
+            errors.append(f"Row {i}: missing question or options A/B")
+            continue
+        if correct not in ("A", "B", "C", "D"):
+            errors.append(f"Row {i}: 'correct' must be A, B, C, or D (got '{correct}')")
+            continue
+        if correct == "C" and not cc:
+            errors.append(f"Row {i}: correct is C but option C is empty")
+            continue
+        if correct == "D" and not dd:
+            errors.append(f"Row {i}: correct is D but option D is empty")
+            continue
+        parsed.append((q, a, b, cc, dd, correct, cat))
+
+    if not parsed:
+        return jsonify(ok=False, msg="No valid questions found.", errors=errors), 400
+
+    if num_q > len(parsed):
+        num_q = len(parsed)
+
+    db = get_db()
+    u = current_user()
+    cur = db.execute(
+        "INSERT INTO assessments (title,description,roles,num_questions,pass_percent,time_limit,active,created_by,created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (title, desc, roles, num_q, pass_pct, time_limit, 1, u["emp_id"], datetime.utcnow().isoformat())
+    )
+    aid = cur.lastrowid
+    for (q, a, b, cc, dd, correct, cat) in parsed:
+        db.execute(
+            "INSERT INTO questions (assessment_id,question,opt_a,opt_b,opt_c,opt_d,correct,category) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (aid, q, a, b, cc, dd, correct, cat)
+        )
+    db.commit()
+    return jsonify(ok=True, id=aid, loaded=len(parsed), errors=errors,
+                   msg=f"Assessment created with {len(parsed)} questions.")
+
+
+@app.route("/api/admin/toggle-assessment", methods=["POST"])
+@admin_required
+def api_admin_toggle_assessment():
+    d = request.get_json(force=True)
+    aid = d.get("id")
+    db = get_db()
+    a = db.execute("SELECT active FROM assessments WHERE id=?", (aid,)).fetchone()
+    if not a:
+        return jsonify(ok=False, msg="Not found."), 404
+    newv = 0 if a["active"] else 1
+    db.execute("UPDATE assessments SET active=? WHERE id=?", (newv, aid))
+    db.commit()
+    return jsonify(ok=True, active=bool(newv))
+
+
+@app.route("/api/admin/delete-assessment", methods=["POST"])
+@admin_required
+def api_admin_delete_assessment():
+    d = request.get_json(force=True)
+    aid = d.get("id")
+    db = get_db()
+    db.execute("DELETE FROM questions WHERE assessment_id=?", (aid,))
+    db.execute("DELETE FROM assessment_results WHERE assessment_id=?", (aid,))
+    db.execute("DELETE FROM assessments WHERE id=?", (aid,))
+    db.commit()
+    return jsonify(ok=True, msg="Assessment deleted.")
+
+
+@app.route("/api/admin/assessment-results")
+@admin_required
+def api_admin_assessment_results():
+    """All results for one assessment (for the admin table + CSV export)."""
+    aid = request.args.get("id")
+    db = get_db()
+    rows = db.execute(
+        "SELECT r.*, u.name, u.designation FROM assessment_results r "
+        "LEFT JOIN users u ON u.emp_id = r.emp_id "
+        "WHERE r.assessment_id=? ORDER BY r.taken_at DESC", (aid,)
+    ).fetchall()
+    return jsonify(ok=True, results=[dict(r) for r in rows])
+
+
+# ---- Learner side ----
+@app.route("/api/my-assessments")
+@login_required
+def api_my_assessments():
+    """Assessments available to the logged-in learner, with their best result."""
+    u = current_user()
+    db = get_db()
+    rows = db.execute("SELECT * FROM assessments WHERE active=1 ORDER BY created_at DESC").fetchall()
+    out = []
+    for a in rows:
+        if not _assessment_allowed_for(a, u):
+            continue
+        best = db.execute(
+            "SELECT MAX(percent) p, MAX(passed) passed FROM assessment_results "
+            "WHERE assessment_id=? AND emp_id=?", (a["id"], u["emp_id"])
+        ).fetchone()
+        out.append({
+            "id": a["id"], "title": a["title"], "description": a["description"],
+            "num_questions": a["num_questions"], "pass_percent": a["pass_percent"],
+            "time_limit": a["time_limit"],
+            "best": best["p"] if best and best["p"] is not None else None,
+            "passed": bool(best["passed"]) if best and best["passed"] else False
+        })
+    return jsonify(ok=True, assessments=out)
+
+
+@app.route("/api/start-assessment")
+@login_required
+def api_start_assessment():
+    """Return a random, shuffled subset of questions for this learner.
+    Correct answers are NOT sent to the browser — scoring happens server-side."""
+    u = current_user()
+    aid = request.args.get("id")
+    db = get_db()
+    a = db.execute("SELECT * FROM assessments WHERE id=? AND active=1", (aid,)).fetchone()
+    if not a:
+        return jsonify(ok=False, msg="Assessment not available."), 404
+    if not _assessment_allowed_for(a, u):
+        return jsonify(ok=False, msg="This assessment is not assigned to your role."), 403
+
+    qs = db.execute("SELECT * FROM questions WHERE assessment_id=?", (aid,)).fetchall()
+    qs = list(qs)
+    _random.shuffle(qs)
+    take = qs[: a["num_questions"]]
+
+    out = []
+    for q in take:
+        # build options list and shuffle, keeping track of which is correct
+        opts = [("A", q["opt_a"]), ("B", q["opt_b"])]
+        if q["opt_c"]:
+            opts.append(("C", q["opt_c"]))
+        if q["opt_d"]:
+            opts.append(("D", q["opt_d"]))
+        _random.shuffle(opts)
+        out.append({
+            "qid": q["id"],
+            "question": q["question"],
+            # send shuffled options with NEW display letters, hide original correct
+            "options": [{"key": chr(65 + idx), "text": text, "_orig": orig}
+                        for idx, (orig, text) in enumerate(opts)]
+        })
+
+    return jsonify(ok=True, assessment={
+        "id": a["id"], "title": a["title"], "time_limit": a["time_limit"],
+        "pass_percent": a["pass_percent"], "total": len(out)
+    }, questions=out)
+
+
+@app.route("/api/submit-assessment", methods=["POST"])
+@login_required
+def api_submit_assessment():
+    """Receive answers, score server-side, save result, return pass/fail + cert data."""
+    u = current_user()
+    d = request.get_json(force=True)
+    aid = d.get("assessment_id")
+    answers = d.get("answers") or {}   # { qid: chosen_orig_letter }
+
+    db = get_db()
+    a = db.execute("SELECT * FROM assessments WHERE id=?", (aid,)).fetchone()
+    if not a:
+        return jsonify(ok=False, msg="Assessment not found."), 404
+
+    qids = [int(k) for k in answers.keys()] if answers else []
+    score = 0
+    total = len(answers)
+    if qids:
+        placeholders = ",".join("?" * len(qids))
+        qrows = db.execute(f"SELECT id, correct FROM questions WHERE id IN ({placeholders})", qids).fetchall()
+        correct_map = {r["id"]: r["correct"] for r in qrows}
+        for qid_str, chosen in answers.items():
+            qid = int(qid_str)
+            if correct_map.get(qid) and str(chosen).upper() == correct_map[qid]:
+                score += 1
+
+    percent = round((score / total) * 100) if total else 0
+    passed = 1 if percent >= a["pass_percent"] else 0
+
+    db.execute(
+        "INSERT INTO assessment_results (assessment_id,emp_id,score,total,percent,passed,taken_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (aid, u["emp_id"], score, total, percent, passed, datetime.utcnow().isoformat())
+    )
+    db.commit()
+
+    return jsonify(ok=True, score=score, total=total, percent=percent,
+                   passed=bool(passed), pass_percent=a["pass_percent"],
+                   cert={
+                       "name": u["name"], "emp_id": u["emp_id"],
+                       "assessment": a["title"], "score": percent,
+                       "date": datetime.utcnow().strftime("%d %B %Y")
+                   } if passed else None)
 
 
 # ---------------------------------------------------------------
