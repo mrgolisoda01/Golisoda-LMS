@@ -1,26 +1,57 @@
 /* ============================================================
-   portal.js — runs the learner experience
-   - Shows Induction modules in order
-   - Sequential lock: must PASS (>=90%) to unlock the next module
-   - Plays slides, then a shuffled quiz
-   - Saves each attempt to the Python backend (/api/save-score)
+   portal.js — tabbed learner portal
+   Tabs: Home | Induction | Training | Assessments | Videos | Certificates
+   Keeps the original Induction module system (slides + 90% quiz unlock)
+   and adds the Assessment Engine + Certificates inside the same portal.
    ============================================================ */
 
-const PASS = 90;                  // pass percentage
-let progress = {};                // {moduleId: {best, passed}}
-let cur = null;                   // current module being viewed
+const PASS = 90;
+let progress = {};
+let cur = null;
 let slideIdx = 0;
 
 const $ = id => document.getElementById(id);
 
-/* ---- shuffle helper (anti-cheat: order changes each load) ---- */
 function shuffle(arr){
   const a = arr.slice();
   for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
   return a;
 }
 
-/* ---- load progress from backend, then draw the grid ---- */
+/* ---------------- TAB SWITCHING ---------------- */
+function showTab(name){
+  document.querySelectorAll('.tabpane').forEach(p=>p.classList.remove('show'));
+  document.querySelectorAll('.pt-tab').forEach(t=>t.classList.remove('active'));
+  $('tab-'+name).classList.add('show');
+  document.querySelector('.pt-tab[data-tab="'+name+'"]').classList.add('active');
+  if(name==='assess') loadAssessments();
+  if(name==='certs') loadCertificates();
+  if(name==='home') loadHomeStats();
+  if(name==='induction') goHome();
+}
+
+/* ---------------- HOME STATS ---------------- */
+async function loadHomeStats(){
+  // induction passed
+  let indPassed = 0;
+  try{
+    Object.keys(progress).forEach(k=>{ if(progress[k] && progress[k].passed) indPassed++; });
+  }catch(e){}
+  $('hInd').textContent = indPassed;
+  // assessments + certs
+  try{
+    const r = await (await fetch('/api/my-certificates')).json();
+    const certs = (r && r.certificates) || [];
+    $('hCert').textContent = certs.length;
+  }catch(e){ $('hCert').textContent = 0; }
+  try{
+    const r = await (await fetch('/api/my-assessments')).json();
+    const list = (r && r.assessments) || [];
+    $('hAss').textContent = list.filter(a=>a.passed).length;
+  }catch(e){ $('hAss').textContent = 0; }
+}
+
+/* ---------------- INDUCTION (original system) ---------------- */
 async function boot(){
   try{
     const res = await fetch('/api/my-progress');
@@ -28,16 +59,18 @@ async function boot(){
     progress = (body && body.progress) || {};
   }catch(e){ progress = {}; }
   drawGrid();
+  loadHomeStats();
 }
 
 function isUnlocked(i){
-  if(i===0) return true;                       // first module always open
+  if(i===0) return true;
   const prev = INDUCTION[i-1];
-  return progress[prev.id] && progress[prev.id].passed;   // need previous passed
+  return progress[prev.id] && progress[prev.id].passed;
 }
 
 function drawGrid(){
   const grid = $('ind-grid');
+  if(!grid) return;
   grid.innerHTML = '';
   INDUCTION.forEach((m, i)=>{
     const unlocked = isUnlocked(i);
@@ -58,7 +91,6 @@ function drawGrid(){
   });
 }
 
-/* ---------- slides ---------- */
 function openModule(m){
   cur = m; slideIdx = 0;
   $('p-home').classList.add('hide');
@@ -90,12 +122,10 @@ function drawSlide(){
 function nextSlide(){ if(slideIdx<cur.slides.length-1){slideIdx++; drawSlide();} }
 function prevSlide(){ if(slideIdx>0){slideIdx--; drawSlide();} }
 
-/* ---------- quiz ---------- */
-let quizQs = [];      // shuffled questions for this attempt
-let answers = {};     // {questionIndex: selectedOptionIndex}
+let quizQs = [];
+let answers = {};
 
 function startQuiz(){
-  // shuffle questions AND each question's options (anti-cheat)
   quizQs = shuffle(cur.quiz).map(q=>{
     const opts = q.options.map((text,idx)=>({text, correct: idx===q.answer}));
     return { q:q.q, options: shuffle(opts) };
@@ -134,17 +164,14 @@ async function submitQuiz(){
   const percent = Math.round((correct/total)*100);
   const passed = percent >= PASS;
 
-  // save to backend
   try{
     await fetch('/api/save-score', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ module_id: cur.id, set_no:1, score: correct, total })
     });
-  }catch(e){ /* keep going even if save fails */ }
+  }catch(e){}
 
-  if(passed){
-    progress[cur.id] = { best: percent, passed: true };
-  }
+  if(passed){ progress[cur.id] = { best: percent, passed: true }; }
 
   $('quizarea').innerHTML = `
     <div class="result">
@@ -159,13 +186,150 @@ async function submitQuiz(){
     </div>`;
 }
 
-/* ---------- navigation ---------- */
 function goHome(){
-  $('p-view').classList.add('hide');
-  $('p-quiz').classList.add('hide');
-  $('p-home').classList.remove('hide');
+  if($('p-view')) $('p-view').classList.add('hide');
+  if($('p-quiz')) $('p-quiz').classList.add('hide');
+  if($('p-home')) $('p-home').classList.remove('hide');
   drawGrid();
 }
+
+/* ---------------- ASSESSMENTS (engine inside portal) ---------------- */
+let AS_CUR = null, AS_QS = [], AS_ANS = {}, AS_TIMER = null, AS_LEFT = 0, AS_LASTCERT = null;
+
+async function loadAssessments(){
+  showAsView('list');
+  const box = $('asListBox');
+  try{
+    const d = await (await fetch('/api/my-assessments')).json();
+    const list = (d && d.assessments) || [];
+    if(list.length===0){ box.innerHTML = '<div class="empty">No assessments are assigned to you yet.</div>'; return; }
+    box.innerHTML = list.map(a=>{
+      const done = a.passed
+        ? '<span class="badge b-pass">Passed '+(a.best!=null?a.best+'%':'')+'</span>'
+        : (a.best!=null ? '<span class="badge b-todo">Best '+a.best+'% — retry</span>' : '<span class="badge b-todo">Not attempted</span>');
+      const timer = a.time_limit>0 ? a.time_limit+' min' : 'No time limit';
+      return `<div class="as-card">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap">
+          <div><h4>${esc(a.title)} ${done}</h4>
+            <div class="meta">${esc(a.description||'')}</div>
+            <div class="meta" style="margin-top:6px">${a.num_questions} questions · Pass ${a.pass_percent}% · ${timer}</div></div>
+          <button class="btn btn-pri" onclick="startAssessment(${a.id})">${a.passed?'Retake':'Start'}</button>
+        </div></div>`;
+    }).join('');
+  }catch(e){ box.innerHTML = '<div class="empty">Could not load assessments.</div>'; }
+}
+
+function showAsView(which){
+  $('as-list').classList.toggle('hide', which!=='list');
+  $('as-quiz').classList.toggle('hide', which!=='quiz');
+  $('as-result').classList.toggle('hide', which!=='result');
+}
+
+async function startAssessment(id){
+  let d;
+  try{ d = await (await fetch('/api/start-assessment?id='+id)).json(); }
+  catch(e){ alert('Could not start.'); return; }
+  if(!d.ok){ alert(d.msg||'Could not start.'); return; }
+  AS_CUR = d.assessment; AS_QS = d.questions; AS_ANS = {};
+  $('asQuizTitle').textContent = AS_CUR.title;
+  drawAsQuiz();
+  showAsView('quiz');
+  clearInterval(AS_TIMER);
+  if(AS_CUR.time_limit>0){
+    AS_LEFT = AS_CUR.time_limit*60; updateAsTimer();
+    AS_TIMER = setInterval(()=>{ AS_LEFT--; updateAsTimer(); if(AS_LEFT<=0){clearInterval(AS_TIMER);alert("Time's up! Submitting.");submitAssessment();} },1000);
+  } else { $('asTimer').textContent='No time limit'; }
+}
+
+function updateAsTimer(){
+  const m=Math.floor(AS_LEFT/60), s=AS_LEFT%60;
+  const t=$('asTimer'); t.textContent='⏱ '+m+':'+(s<10?'0':'')+s; t.classList.toggle('warn', AS_LEFT<=30);
+}
+
+function drawAsQuiz(){
+  $('asQuizBody').innerHTML = AS_QS.map((q,i)=>`
+    <div class="qcard">
+      <div class="meta" style="font-weight:700;text-transform:uppercase;font-size:11px">Question ${i+1} of ${AS_QS.length}</div>
+      <div class="qtext">${esc(q.question)}</div>
+      ${q.options.map(o=>`<label class="opt2" id="aopt-${q.qid}-${o._orig}" onclick="pickAs(${q.qid},'${o._orig}')"><b>${o.key}.</b> ${esc(o.text)}</label>`).join('')}
+    </div>`).join('');
+}
+
+function pickAs(qid, orig){
+  AS_ANS[qid]=orig;
+  AS_QS.find(q=>q.qid===qid).options.forEach(o=>{
+    const el=$('aopt-'+qid+'-'+o._orig); if(el) el.classList.toggle('sel', o._orig===orig);
+  });
+}
+
+async function submitAssessment(){
+  clearInterval(AS_TIMER);
+  const un = AS_QS.length - Object.keys(AS_ANS).length;
+  if(un>0 && !confirm(un+' question(s) not answered. Submit anyway?')){
+    if(AS_CUR.time_limit>0 && AS_LEFT>0){ AS_TIMER=setInterval(()=>{AS_LEFT--;updateAsTimer();if(AS_LEFT<=0){clearInterval(AS_TIMER);submitAssessment();}},1000); }
+    return;
+  }
+  let d;
+  try{ d = await (await fetch('/api/submit-assessment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({assessment_id:AS_CUR.id,answers:AS_ANS})})).json(); }
+  catch(e){ alert('Submit failed.'); return; }
+  if(!d.ok){ alert(d.msg||'Submit failed.'); return; }
+  AS_LASTCERT = (d.passed && d.cert) ? d.cert : null;
+  $('as-result').innerHTML = `
+    <div class="qcard" style="text-align:center;padding:30px">
+      <div class="meta">${esc(AS_CUR.title)}</div>
+      <div style="font-size:50px;font-weight:800;margin:6px 0;color:${d.passed?'var(--mg-green)':'var(--mg-red)'}">${d.percent}%</div>
+      <div style="font-size:16px;font-weight:600">${d.passed?'Congratulations — you passed!':'Not passed this time.'}</div>
+      <div class="meta" style="margin-top:8px">You answered ${d.score} of ${d.total} correctly. Pass mark is ${d.pass_percent}%.</div>
+      <div style="margin-top:18px">
+        <button class="btn btn-sec" onclick="loadAssessments()">Back to assessments</button>
+        ${AS_LASTCERT?'<button class="btn btn-pri" onclick="viewCertFromResult()">View certificate</button>':''}
+      </div>
+    </div>`;
+  showAsView('result');
+}
+
+function viewCertFromResult(){
+  if(!AS_LASTCERT) return;
+  showTab('certs');
+  setTimeout(()=>openCert(AS_LASTCERT), 50);
+}
+
+/* ---------------- CERTIFICATES ---------------- */
+async function loadCertificates(){
+  $('certView').classList.add('hide');
+  document.querySelector('#tab-certs .sectiontitle').style.display='';
+  const box = $('certListBox'); box.style.display='';
+  try{
+    const d = await (await fetch('/api/my-certificates')).json();
+    const list = (d && d.certificates) || [];
+    if(list.length===0){ box.innerHTML = '<div class="empty">No certificates yet. Pass an assessment to earn one.</div>'; return; }
+    box.innerHTML = list.map((c,i)=>`
+      <div class="as-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+          <div><h4>🏅 ${esc(c.assessment)}</h4>
+            <div class="meta">Score ${c.score}% · ${esc(c.date)}</div></div>
+          <button class="btn btn-pri" onclick='openCert(${JSON.stringify(c).replace(/'/g,"&#39;")})'>View certificate</button>
+        </div></div>`).join('');
+  }catch(e){ box.innerHTML = '<div class="empty">Could not load certificates.</div>'; }
+}
+
+function openCert(c){
+  $('certName').textContent = c.name;
+  $('certAssessment').textContent = c.assessment;
+  $('certScore').textContent = c.score + '%';
+  $('certDate').textContent = c.date;
+  document.querySelector('#tab-certs .sectiontitle').style.display='none';
+  $('certListBox').style.display='none';
+  $('certView').classList.remove('hide');
+}
+function closeCert(){
+  $('certView').classList.add('hide');
+  document.querySelector('#tab-certs .sectiontitle').style.display='';
+  $('certListBox').style.display='';
+}
+
+/* ---------------- misc ---------------- */
+function esc(s){ return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 async function doSignOut(){
   try{ await fetch('/api/logout', {method:'POST'}); }catch(e){}
