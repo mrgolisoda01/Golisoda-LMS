@@ -67,8 +67,11 @@
     .fld textarea{width:100%;padding:10px;border:1px solid var(--mg-line);border-radius:8px;font-size:13px;min-height:120px;font-family:monospace}
     .modal-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
     .note{font-size:12px;color:var(--mg-muted);background:#f7fafc;border:1px solid var(--mg-line);border-radius:8px;padding:10px;margin-bottom:12px}
-    .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--mg-ink);color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;display:none;z-index:60}
+    .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--mg-ink);color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;display:none;z-index:60;max-width:90%;text-align:center}
     .toast.show{display:block}
+    /* tabs */
+    .tabbtn{border:none;background:none;padding:14px 16px;font-size:14px;font-weight:600;color:var(--mg-muted);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-1px}
+    .tabbtn.active{color:var(--mg-blue);border-bottom-color:var(--mg-blue)}
   </style>
 </head>
 <body>
@@ -95,7 +98,14 @@
     <div>Logged in as <b id="whoName">Administrator</b> · ID <b id="whoId">ADMIN</b><span id="whoLast"></span></div>
   </div>
 
-  <div class="wrap">
+  <!-- TAB NAV -->
+  <div style="background:#fff;border-bottom:1px solid var(--mg-line);padding:0 22px;display:flex;gap:4px">
+    <button class="tabbtn active" id="tabEmpBtn" onclick="switchTab('emp')">👥 Employees</button>
+    <button class="tabbtn" id="tabAsBtn" onclick="switchTab('as')">📝 Assessments</button>
+  </div>
+
+  <!-- ============ EMPLOYEES TAB ============ -->
+  <div class="wrap tabpane" id="tabEmp">
 
     <div class="cards">
       <div class="card"><div class="lbl">Total employees</div><div class="val" style="color:var(--mg-blue)" id="cTotal">—</div></div>
@@ -126,6 +136,70 @@
       </table>
     </div>
 
+  </div>
+
+  <!-- ============ ASSESSMENTS TAB ============ -->
+  <div class="wrap tabpane" id="tabAs" style="display:none">
+
+    <div style="background:#fff;border:1px solid var(--mg-line);border-radius:12px;padding:18px;margin-bottom:22px">
+      <h2 style="margin:0 0 4px;font-size:17px">Create a new assessment</h2>
+      <p style="margin:0 0 16px;font-size:13px;color:var(--mg-muted)">Type questions in Excel, save as CSV, and paste them below. Each learner gets a random shuffled subset.</p>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="fld"><label>Assessment title</label><input id="asTitle" placeholder="e.g. Induction Module 1" /></div>
+        <div class="fld"><label>Short description (optional)</label><input id="asDesc" placeholder="e.g. Company basics" /></div>
+      </div>
+
+      <div class="fld">
+        <label>Who takes this assessment? (tick roles — leave all unticked for everyone)</label>
+        <div id="roleChecks" style="padding:6px 0"></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div class="fld"><label>Questions per learner</label><input id="asNum" type="number" value="10" min="1" /></div>
+        <div class="fld"><label>Pass % (minimum 90)</label><input id="asPass" type="number" value="90" min="90" max="100" /></div>
+        <div class="fld">
+          <label>Timer</label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--mg-ink);padding-top:8px">
+            <input type="checkbox" id="asTimed" style="width:auto" onchange="onTimedToggle()"> Timed assessment
+          </label>
+        </div>
+      </div>
+      <div class="fld" id="asTimeWrap" style="display:none;max-width:240px">
+        <label>Time limit (minutes)</label><input id="asTime" type="number" value="15" min="1" />
+      </div>
+
+      <div class="note">
+        <b>CSV format (first row = header):</b><br>
+        question,option_a,option_b,option_c,option_d,correct,category<br>
+        <span style="color:var(--mg-muted)">option_c, option_d, category are optional. "correct" must be A, B, C, or D.</span><br><br>
+        <b>Example:</b><br>
+        Glass bottle cost with tax?,₹4.54,₹12.91,₹15,₹30,A,P&amp;L
+      </div>
+
+      <div class="fld">
+        <label>Paste question CSV here</label>
+        <textarea id="asCsv" style="min-height:150px" placeholder="question,option_a,option_b,option_c,option_d,correct,category
+Glass bottle cost with tax?,₹4.54,₹12.91,₹15,₹30,A,P&amp;L
+Who sets franchise fixed expenses?,RSM,State Head,NSM,BDM,B,Roles"></textarea>
+      </div>
+
+      <div style="text-align:right">
+        <button class="btn primary" onclick="createAssessment()">Create assessment</button>
+      </div>
+    </div>
+
+    <h2 style="font-size:17px;margin:0 0 12px">Your assessments</h2>
+    <div id="assessList"><div class="empty">Loading…</div></div>
+
+  </div>
+
+  <!-- RESULTS MODAL -->
+  <div class="ov" id="resultsOv">
+    <div class="modal" style="max-width:760px">
+      <div id="resultsBox"></div>
+      <div class="modal-foot"><button class="btn" onclick="closeModal('resultsOv')">Close</button></div>
+    </div>
   </div>
 
   <!-- EDIT MODAL -->
@@ -190,5 +264,22 @@ Priya S,MG087,9876500000,State Head,"></textarea>
   <div class="toast" id="toast"></div>
 
   <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/assess-admin.js') }}"></script>
+  <script>
+    function switchTab(which){
+      const emp = document.getElementById('tabEmp');
+      const as  = document.getElementById('tabAs');
+      const eb  = document.getElementById('tabEmpBtn');
+      const ab  = document.getElementById('tabAsBtn');
+      if(which === 'as'){
+        emp.style.display='none'; as.style.display='block';
+        eb.classList.remove('active'); ab.classList.add('active');
+        loadAssessments();
+      } else {
+        as.style.display='none'; emp.style.display='block';
+        ab.classList.remove('active'); eb.classList.add('active');
+      }
+    }
+  </script>
 </body>
 </html>
