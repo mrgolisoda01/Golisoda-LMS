@@ -27,7 +27,113 @@ function showTab(name){
   if(name==='assess') loadAssessments();
   if(name==='certs') loadCertificates();
   if(name==='home') loadHomeStats();
-  if(name==='induction') goHome();
+  if(name==='induction'){ goHome(); loadFileModules('induction'); }
+  if(name==='training') loadFileModules('training');
+  if(name==='videos') loadVideos();
+}
+
+/* ---------------- FILE MODULES (Drive PDF/HTML/PPT) ---------------- */
+let MOD_TIMER = null, MOD_VIEWING = null;
+
+async function loadFileModules(kind){
+  const boxId = kind==='induction' ? 'indFileBox' : 'trnFileBox';
+  const box = $(boxId);
+  if(!box) return;
+  try{
+    const d = await (await fetch('/api/content/'+kind)).json();
+    const list = (d && d.modules) || [];
+    if(list.length===0){
+      box.innerHTML = kind==='training'
+        ? '<div class="placeholder"><div class="ic">🎓</div><h3 style="margin:0 0 6px;color:var(--mg-ink)">No training modules yet</h3><p>Role-specific modules will appear here when added.</p></div>'
+        : '<div class="empty">No document modules yet.</div>';
+      return;
+    }
+    box.innerHTML = list.map(m=>{
+      const done = m.completed ? '<span class="badge b-pass">✓ Completed</span>' : '';
+      const t = m.min_minutes>0 ? `Min viewing: ${m.min_minutes} min` : 'No minimum time';
+      return `<div class="as-card">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap">
+          <div><h4>📄 ${esc(m.title)} ${done}</h4>
+            <div class="meta">${esc(m.description||'')}</div>
+            <div class="meta" style="margin-top:5px">${(m.file_type||'file').toUpperCase()} · ${t}</div></div>
+          <button class="btn btn-pri" onclick="openFileModule(${m.id},'${esc(m.title).replace(/'/g,"&#39;")}','${esc(m.link)}',${m.min_minutes},${m.completed?1:0})">${m.completed?'View again':'Open'}</button>
+        </div></div>`;
+    }).join('');
+  }catch(e){ box.innerHTML = '<div class="empty">Could not load modules.</div>'; }
+}
+
+function openFileModule(id, title, link, minMins, alreadyDone){
+  MOD_VIEWING = { id, minMins, alreadyDone };
+  $('fmTitle').textContent = title;
+  // embed Drive/PDF link; convert /view links to /preview for embedding
+  let embed = link;
+  if(link.indexOf('drive.google.com')>=0){
+    embed = link.replace('/view','/preview').replace('?usp=sharing','');
+  }
+  $('fmFrame').src = embed;
+  $('fmOpenLink').href = link;
+  $('fmModal').classList.add('show');
+
+  // timer
+  clearInterval(MOD_TIMER);
+  const btn = $('fmComplete');
+  if(alreadyDone){
+    btn.disabled = false; btn.textContent = 'Already completed ✓';
+    $('fmCountdown').textContent = '';
+    return;
+  }
+  let left = (minMins||0)*60;
+  if(left<=0){
+    btn.disabled = false; btn.textContent = 'Mark complete';
+    $('fmCountdown').textContent = '';
+  } else {
+    btn.disabled = true;
+    const tick = ()=>{
+      const m=Math.floor(left/60), s=left%60;
+      $('fmCountdown').textContent = `Please view for ${m}:${s<10?'0':''}${s} before completing`;
+      $('fmComplete').textContent = 'Mark complete';
+      if(left<=0){ clearInterval(MOD_TIMER); btn.disabled=false; $('fmCountdown').textContent='You may now mark this complete ✓'; }
+      left--;
+    };
+    tick(); MOD_TIMER = setInterval(tick, 1000);
+  }
+}
+
+async function completeFileModule(){
+  if(!MOD_VIEWING) return;
+  try{ await fetch('/api/content/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({module_id:MOD_VIEWING.id})}); }catch(e){}
+  closeFileModule();
+  // reload whichever tab is active
+  const active = document.querySelector('.pt-tab.active').getAttribute('data-tab');
+  if(active==='induction') loadFileModules('induction');
+  if(active==='training') loadFileModules('training');
+  loadHomeStats();
+}
+
+function closeFileModule(){
+  clearInterval(MOD_TIMER);
+  $('fmFrame').src = 'about:blank';
+  $('fmModal').classList.remove('show');
+}
+
+/* ---------------- VIDEOS ---------------- */
+async function loadVideos(){
+  const box = $('vidBox');
+  if(!box) return;
+  try{
+    const d = await (await fetch('/api/content/videos')).json();
+    const list = (d && d.videos) || [];
+    if(list.length===0){
+      box.innerHTML = '<div class="placeholder"><div class="ic">🎥</div><h3 style="margin:0 0 6px;color:var(--mg-ink)">No videos yet</h3><p>Training videos will appear here when added.</p></div>';
+      return;
+    }
+    box.innerHTML = list.map(v=>`
+      <div class="as-card">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap">
+          <div><h4>🎥 ${esc(v.title)}</h4><div class="meta">${esc(v.description||'')}</div></div>
+          <a class="btn btn-pri" href="${esc(v.link)}" target="_blank">Watch ↗</a>
+        </div></div>`).join('');
+  }catch(e){ box.innerHTML = '<div class="empty">Could not load videos.</div>'; }
 }
 
 /* ---------------- HOME STATS ---------------- */
