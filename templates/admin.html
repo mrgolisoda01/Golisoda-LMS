@@ -102,6 +102,9 @@
   <div style="background:#fff;border-bottom:1px solid var(--mg-line);padding:0 22px;display:flex;gap:4px">
     <button class="tabbtn active" id="tabEmpBtn" onclick="switchTab('emp')">👥 Employees</button>
     <button class="tabbtn" id="tabAsBtn" onclick="switchTab('as')">📝 Assessments</button>
+    <button class="tabbtn" id="tabIndBtn" onclick="switchTab('ind')">📘 Induction</button>
+    <button class="tabbtn" id="tabTrnBtn" onclick="switchTab('trn')">🎓 Training</button>
+    <button class="tabbtn" id="tabVidBtn" onclick="switchTab('vid')">🎥 Videos</button>
   </div>
 
   <!-- ============ EMPLOYEES TAB ============ -->
@@ -194,6 +197,84 @@ Who sets franchise fixed expenses?,RSM,State Head,NSM,BDM,B,Roles"></textarea>
 
   </div>
 
+  <!-- ============ INDUCTION MODULES TAB ============ -->
+  <div class="wrap tabpane" id="tabInd" style="display:none">
+    <div class="sec-head">
+      <h2>Induction modules</h2>
+      <button class="btn primary" onclick="openModuleForm('induction')">＋ Add induction module</button>
+    </div>
+    <div class="note" style="margin-bottom:14px">
+      Upload your module file to <b>Google Drive</b>, set sharing to "Anyone with the link", copy the link, and paste it below.
+      Supported: PDF and HTML view best on screen; PPT will download. Set a minimum viewing time for each module.
+    </div>
+    <div id="indList"><div class="empty">Loading…</div></div>
+  </div>
+
+  <!-- ============ TRAINING MODULES TAB ============ -->
+  <div class="wrap tabpane" id="tabTrn" style="display:none">
+    <div class="sec-head">
+      <h2>Training modules (role-specific)</h2>
+      <button class="btn primary" onclick="openModuleForm('training')">＋ Add training module</button>
+    </div>
+    <div class="note" style="margin-bottom:14px">
+      Same as induction, but you choose which roles (BDE, BDM, State Head, etc.) can see each module.
+    </div>
+    <div id="trnList"><div class="empty">Loading…</div></div>
+  </div>
+
+  <!-- ============ VIDEOS TAB ============ -->
+  <div class="wrap tabpane" id="tabVid" style="display:none">
+    <div class="sec-head">
+      <h2>Videos</h2>
+      <button class="btn primary" onclick="openVideoForm()">＋ Add video</button>
+    </div>
+    <div class="note" style="margin-bottom:14px">Paste a YouTube or Google Drive video link. Choose which roles can see it.</div>
+    <div id="vidList"><div class="empty">Loading…</div></div>
+  </div>
+
+  <!-- MODULE MODAL -->
+  <div class="ov" id="moduleOv">
+    <div class="modal">
+      <h3 id="mFormTitle">Add module</h3>
+      <input type="hidden" id="mKind" value="induction" />
+      <div class="fld"><label>Module title</label><input id="mTitle" placeholder="e.g. Company Introduction" /></div>
+      <div class="fld"><label>Short description (optional)</label><input id="mDesc" /></div>
+      <div class="fld"><label>Google Drive link (PDF / HTML / PPT)</label><input id="mLink" placeholder="https://drive.google.com/file/d/.../view" /></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="fld"><label>File type</label>
+          <select id="mType"><option value="pdf">PDF</option><option value="html">HTML</option><option value="ppt">PPT</option></select>
+        </div>
+        <div class="fld"><label>Minimum viewing time (minutes)</label><input id="mMins" type="number" value="5" min="0" /></div>
+      </div>
+      <div class="fld"><label>Display order</label><input id="mOrder" type="number" value="1" min="0" style="max-width:120px" /></div>
+      <div class="fld"><label>Who can see this? (tick roles — leave all unticked for everyone)</label>
+        <div id="mRoleChecks" style="padding:5px 0"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeModal('moduleOv')">Cancel</button>
+        <button class="btn primary" onclick="saveModule()">Save module</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIDEO MODAL -->
+  <div class="ov" id="videoOv">
+    <div class="modal">
+      <h3 id="vFormTitle">Add video</h3>
+      <div class="fld"><label>Video title</label><input id="vTitle" placeholder="e.g. Brand Story" /></div>
+      <div class="fld"><label>Short description (optional)</label><input id="vDesc" /></div>
+      <div class="fld"><label>YouTube / Google Drive link</label><input id="vLink" placeholder="https://youtube.com/watch?v=..." /></div>
+      <div class="fld"><label>Display order</label><input id="vOrder" type="number" value="1" min="0" style="max-width:120px" /></div>
+      <div class="fld"><label>Who can see this? (leave all unticked for everyone)</label>
+        <div id="vRoleChecks" style="padding:5px 0"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeModal('videoOv')">Cancel</button>
+        <button class="btn primary" onclick="saveVideo()">Save video</button>
+      </div>
+    </div>
+  </div>
+
   <!-- RESULTS MODAL -->
   <div class="ov" id="resultsOv">
     <div class="modal" style="max-width:760px">
@@ -265,19 +346,23 @@ Priya S,MG087,9876500000,State Head,"></textarea>
 
   <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
   <script src="{{ url_for('static', filename='js/assess-admin.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/content-admin.js') }}"></script>
   <script>
+    const TABS = {
+      emp: 'tabEmp', as: 'tabAs', ind: 'tabInd', trn: 'tabTrn', vid: 'tabVid'
+    };
+    const TAB_BTNS = {
+      emp: 'tabEmpBtn', as: 'tabAsBtn', ind: 'tabIndBtn', trn: 'tabTrnBtn', vid: 'tabVidBtn'
+    };
     function switchTab(which){
-      const emp = document.getElementById('tabEmp');
-      const as  = document.getElementById('tabAs');
-      const eb  = document.getElementById('tabEmpBtn');
-      const ab  = document.getElementById('tabAsBtn');
-      if(which === 'as'){
-        emp.style.display='none'; as.style.display='block';
-        eb.classList.remove('active'); ab.classList.add('active');
-        loadAssessments();
-      } else {
-        as.style.display='none'; emp.style.display='block';
-        ab.classList.remove('active'); eb.classList.add('active');
+      Object.keys(TABS).forEach(k=>{
+        document.getElementById(TABS[k]).style.display = (k===which) ? 'block' : 'none';
+        document.getElementById(TAB_BTNS[k]).classList.toggle('active', k===which);
+      });
+      if(which === 'as') loadAssessments();
+      if(which === 'ind' || which === 'trn' || which === 'vid'){
+        loadContent();
+        if(typeof buildVideoRoleChecks === 'function') buildVideoRoleChecks();
       }
     }
   </script>
