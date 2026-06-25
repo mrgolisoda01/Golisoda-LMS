@@ -683,6 +683,34 @@ def api_admin_assessment_results():
 
 
 # ---- Learner side ----
+@app.route("/api/my-certificates")
+@login_required
+def api_my_certificates():
+    """All assessments this learner has PASSED, with best score + date, for the Certificates tab."""
+    u = current_user()
+    db = get_db()
+    rows = db.execute(
+        "SELECT r.assessment_id, a.title, MAX(r.percent) AS best, MAX(r.taken_at) AS last_date "
+        "FROM assessment_results r JOIN assessments a ON a.id = r.assessment_id "
+        "WHERE r.emp_id = ? AND r.passed = 1 "
+        "GROUP BY r.assessment_id, a.title ORDER BY last_date DESC",
+        (u["emp_id"],)
+    ).fetchall()
+    certs = []
+    for r in rows:
+        d = r["last_date"]
+        try:
+            dt = datetime.fromisoformat(d.replace("Z", "")) if d else None
+            date_str = dt.strftime("%d %B %Y") if dt else ""
+        except Exception:
+            date_str = ""
+        certs.append({
+            "assessment": r["title"], "score": r["best"],
+            "date": date_str, "name": u["name"], "emp_id": u["emp_id"]
+        })
+    return jsonify(ok=True, certificates=certs)
+
+
 @app.route("/api/my-assessments")
 @login_required
 def api_my_assessments():
