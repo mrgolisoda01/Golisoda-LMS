@@ -150,6 +150,45 @@ def init_db():
         )
     """)
 
+    # ---- Content Management tables (Delivery 2) ----
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS content_modules (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind         TEXT NOT NULL DEFAULT 'induction',  -- 'induction' or 'training'
+            title        TEXT NOT NULL,
+            description  TEXT,
+            link         TEXT NOT NULL,                      -- Google Drive / view link
+            file_type    TEXT,                               -- pdf / html / ppt (label only)
+            min_minutes  INTEGER NOT NULL DEFAULT 0,         -- minimum viewing time
+            roles        TEXT NOT NULL DEFAULT 'all',        -- comma list or 'all'
+            sort_order   INTEGER NOT NULL DEFAULT 0,
+            status       TEXT NOT NULL DEFAULT 'live',       -- 'live' or 'pending' (instructor uploads)
+            created_by   TEXT,
+            created_at   TEXT
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS videos (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            title        TEXT NOT NULL,
+            description  TEXT,
+            link         TEXT NOT NULL,
+            roles        TEXT NOT NULL DEFAULT 'all',
+            sort_order   INTEGER NOT NULL DEFAULT 0,
+            status       TEXT NOT NULL DEFAULT 'live',
+            created_by   TEXT,
+            created_at   TEXT
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS module_completions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_id   INTEGER NOT NULL,
+            emp_id      TEXT NOT NULL,
+            completed_at TEXT
+        )
+    """)
+
     # --- Safe migration: add columns that may not exist on older DBs ---
     if not _column_exists(db, "users", "must_reset"):
         db.execute("ALTER TABLE users ADD COLUMN must_reset INTEGER NOT NULL DEFAULT 0")
@@ -821,6 +860,236 @@ def api_submit_assessment():
                        "assessment": a["title"], "score": percent,
                        "date": datetime.utcnow().strftime("%d %B %Y")
                    } if passed else None)
+
+
+# ===============================================================
+#  NEW — DELIVERY 2: Content Management (modules + videos)
+# ===============================================================
+
+def _can_manage_content():
+    """Admin OR instructor may add content. Returns the user row or None."""
+    u = current_user()
+    if u is None:
+        return None
+    if u["role"] in ("admin", "instructor"):
+        return u
+    return None
+
+
+def _content_visible_for(item, u):
+    roles = (item["roles"] or "all").strip().lower()
+    if roles in ("", "all"):
+        return True
+    desg = (u["designation"] or "").lower()
+    allowed = [r.strip().lower() for r in roles.split(",")]
+    return any(a and a in desg for a in allowed)
+
+
+# ---------- ADMIN/INSTRUCTOR: manage modules ----------
+@app.route("/api/admin/modules")
+@login_required
+def api_admin_modules():
+    """List all modules (admin/instructor view). Shows live + pending."""
+    u = _can_manage_content()
+    if u is None:
+        return jsonify(ok=False, msg="Not allowed."), 403
+    db = get_db()
+    rows = db.execute("SELECT * FROM content_modules ORDER BY kind, sort_order, id").fetchall()
+    vids = db.execute("SELECT * FROM videos ORDER BY sort_order, id").fetchall()
+    return jsonify(ok=True, modules=[dict(r) for r in rows], videos=[dict(v) for v in vids],
+                   role_choices=ROLE_CHOICES, is_admin=(u["role"] == "admin"))
+
+
+@app.route("/api/admin/save-module", methods=["POST"])
+@login_required
+def api_admin_save_module():
+    """Create or update a module. Instructor uploads are 'pending' until admin approves."""
+    u = _can_manage_content()
+    if u is None:
+        return jsonify(ok=False, msg="Not allowed."), 403
+    d = request.get_json(force=True)
+    mid = d.get("id")
+    title = (d.get("title") or "").strip()
+    desc = (d.get("description") or "").strip()
+    link = (d.get("link") or "").strip()
+    kind = (d.get("kind") or "induction").strip()
+    file_type = (d.get("file_type") or "").strip()
+    roles = (d.get("roles") or "all").strip() or "all"
+    try:
+        mins = int(d.get("min_minutes") or 0)
+    except (ValueError, TypeError):
+        mins = 0
+    try:
+        sort_order = int(d.get("sort_order") or 0)
+    except (ValueError, TypeError):
+        sort_order = 0
+
+    if not title or not link:
+        return jsonify(ok=False, msg="Title and link are required."), 400
+    if kind not in ("induction", "training"):
+        kind = "induction"
+
+    # Admin content goes live; instructor content is pending approval
+    status = "live" if u["role"] == "admin" else "pending"
+
+    db = get_db()
+    if mid:
+        existing = db.execute("SELECT * FROM content_modules WHERE id=?", (mid,)).fetchone()
+        if not existing:
+            return jsonify(ok=False, msg="Module not found."), 404
+        # if instructor edits, it goes back to pending; admin edits stay live
+        new_status = "live" if u["role"] == "admin" else "pending"
+        db.execute(
+            "UPDATE content_modules SET kind=?,title=?,description=?,link=?,file_type=?,min_minutes=?,roles=?,sort_order=?,status=? WHERE id=?",
+            (kind, title, desc, link, file_type, mins, roles, sort_order, new_status, mid)
+        )
+        db.commit()
+        return jsonify(ok=True, msg="Module updated." + ("" if u["role"] == "admin" else " Pending admin approval."))
+    else:
+        db.execute(
+            "INSERT INTO content_modules (kind,title,description,link,file_type,min_minutes,roles,sort_order,status,created_by,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (kind, title, desc, link, file_type, mins, roles, sort_order, status, u["emp_id"], datetime.utcnow().isoformat())
+        )
+        db.commit()
+        msg = "Module added and live." if status == "live" else "Module submitted — pending admin approval."
+        return jsonify(ok=True, msg=msg)
+
+
+@app.route("/api/admin/approve-module", methods=["POST"])
+@admin_required
+def api_admin_approve_module():
+    d = request.get_json(force=True)
+    mid = d.get("id")
+    db = get_db()
+    db.execute("UPDATE content_modules SET status='live' WHERE id=?", (mid,))
+    db.commit()
+    return jsonify(ok=True, msg="Module approved and live.")
+
+
+@app.route("/api/admin/delete-module", methods=["POST"])
+@login_required
+def api_admin_delete_module():
+    u = _can_manage_content()
+    if u is None:
+        return jsonify(ok=False, msg="Not allowed."), 403
+    d = request.get_json(force=True)
+    mid = d.get("id")
+    db = get_db()
+    db.execute("DELETE FROM content_modules WHERE id=?", (mid,))
+    db.execute("DELETE FROM module_completions WHERE module_id=?", (mid,))
+    db.commit()
+    return jsonify(ok=True, msg="Module deleted.")
+
+
+# ---------- ADMIN/INSTRUCTOR: manage videos ----------
+@app.route("/api/admin/save-video", methods=["POST"])
+@login_required
+def api_admin_save_video():
+    u = _can_manage_content()
+    if u is None:
+        return jsonify(ok=False, msg="Not allowed."), 403
+    d = request.get_json(force=True)
+    vid = d.get("id")
+    title = (d.get("title") or "").strip()
+    desc = (d.get("description") or "").strip()
+    link = (d.get("link") or "").strip()
+    roles = (d.get("roles") or "all").strip() or "all"
+    try:
+        sort_order = int(d.get("sort_order") or 0)
+    except (ValueError, TypeError):
+        sort_order = 0
+    if not title or not link:
+        return jsonify(ok=False, msg="Title and link are required."), 400
+
+    status = "live" if u["role"] == "admin" else "pending"
+    db = get_db()
+    if vid:
+        new_status = "live" if u["role"] == "admin" else "pending"
+        db.execute("UPDATE videos SET title=?,description=?,link=?,roles=?,sort_order=?,status=? WHERE id=?",
+                   (title, desc, link, roles, sort_order, new_status, vid))
+    else:
+        db.execute("INSERT INTO videos (title,description,link,roles,sort_order,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?)",
+                   (title, desc, link, roles, sort_order, status, u["emp_id"], datetime.utcnow().isoformat()))
+    db.commit()
+    return jsonify(ok=True, msg="Video saved." + ("" if status == "live" or vid else " Pending admin approval."))
+
+
+@app.route("/api/admin/approve-video", methods=["POST"])
+@admin_required
+def api_admin_approve_video():
+    d = request.get_json(force=True)
+    vid = d.get("id")
+    db = get_db()
+    db.execute("UPDATE videos SET status='live' WHERE id=?", (vid,))
+    db.commit()
+    return jsonify(ok=True)
+
+
+@app.route("/api/admin/delete-video", methods=["POST"])
+@login_required
+def api_admin_delete_video():
+    u = _can_manage_content()
+    if u is None:
+        return jsonify(ok=False, msg="Not allowed."), 403
+    d = request.get_json(force=True)
+    vid = d.get("id")
+    db = get_db()
+    db.execute("DELETE FROM videos WHERE id=?", (vid,))
+    db.commit()
+    return jsonify(ok=True)
+
+
+# ---------- LEARNER: view modules + videos ----------
+@app.route("/api/content/<kind>")
+@login_required
+def api_content(kind):
+    """Learner-facing modules of a kind ('induction' or 'training'), with completion state."""
+    u = current_user()
+    if kind not in ("induction", "training"):
+        return jsonify(ok=False, msg="Unknown content type."), 400
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM content_modules WHERE kind=? AND status='live' ORDER BY sort_order, id", (kind,)
+    ).fetchall()
+    done = {r["module_id"] for r in db.execute(
+        "SELECT module_id FROM module_completions WHERE emp_id=?", (u["emp_id"],)).fetchall()}
+    out = []
+    for m in rows:
+        if not _content_visible_for(m, u):
+            continue
+        d = dict(m); d["completed"] = m["id"] in done
+        out.append(d)
+    return jsonify(ok=True, modules=out)
+
+
+@app.route("/api/content/videos")
+@login_required
+def api_content_videos():
+    u = current_user()
+    db = get_db()
+    rows = db.execute("SELECT * FROM videos WHERE status='live' ORDER BY sort_order, id").fetchall()
+    out = [dict(v) for v in rows if _content_visible_for(v, u)]
+    return jsonify(ok=True, videos=out)
+
+
+@app.route("/api/content/complete", methods=["POST"])
+@login_required
+def api_content_complete():
+    """Mark a module complete for this learner (called after the timer elapses)."""
+    u = current_user()
+    d = request.get_json(force=True)
+    mid = d.get("module_id")
+    if not mid:
+        return jsonify(ok=False, msg="Missing module."), 400
+    db = get_db()
+    already = db.execute("SELECT 1 FROM module_completions WHERE module_id=? AND emp_id=?",
+                         (mid, u["emp_id"])).fetchone()
+    if not already:
+        db.execute("INSERT INTO module_completions (module_id,emp_id,completed_at) VALUES (?,?,?)",
+                   (mid, u["emp_id"], datetime.utcnow().isoformat()))
+        db.commit()
+    return jsonify(ok=True, msg="Marked complete.")
 
 
 # ---------------------------------------------------------------
