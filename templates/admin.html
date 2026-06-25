@@ -1,64 +1,194 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Admin · Mr. Golisoda Training</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin · Mr. Golisoda Training</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+  <style>
+    /* ---- Admin dashboard styles (Delivery 1) ---- */
+    :root{
+      --mg-blue:#00AEEF; --mg-yellow:#FFD600; --mg-ink:#0b2733;
+      --mg-bg:#f4f7f9; --mg-card:#ffffff; --mg-line:#e6ebf0;
+      --mg-muted:#62707a; --mg-green:#1d9e75; --mg-amber:#c98a00; --mg-red:#e24b4a;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--mg-bg);font-family:'Inter',system-ui,Arial,sans-serif;color:var(--mg-ink)}
+    .ad-top{background:var(--mg-blue);color:#fff;padding:16px 22px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+    .ad-brand{display:flex;align-items:center;gap:14px}
+    .ad-logo{width:46px;height:46px;border-radius:50%;background:var(--mg-yellow);display:flex;align-items:center;justify-content:center;font-size:24px}
+    .ad-brand h1{font-size:18px;margin:0;font-weight:700}
+    .ad-brand p{margin:0;font-size:12px;color:#d7f3fd}
+    .ad-when{text-align:right;font-size:13px}
+    .ad-when .d{font-weight:600}
+    .ad-when .t{font-size:12px;color:#d7f3fd}
+    .ad-signout{background:#fff;color:var(--mg-blue);border:none;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer;font-size:13px}
+    .ad-who{background:#eaf7fe;border-bottom:1px solid var(--mg-line);padding:12px 22px;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--mg-muted)}
+    .ad-who .pic{width:30px;height:30px;border-radius:50%;background:var(--mg-blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700}
+    .ad-who b{color:var(--mg-ink)}
+    .wrap{max-width:1100px;margin:0 auto;padding:20px 22px 60px}
+    .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+    @media(max-width:680px){.cards{grid-template-columns:repeat(2,1fr)}}
+    .card{background:var(--mg-card);border:1px solid var(--mg-line);border-radius:12px;padding:16px}
+    .card .lbl{font-size:12px;color:var(--mg-muted)}
+    .card .val{font-size:26px;font-weight:700;margin-top:4px}
+    .sec-head{display:flex;align-items:center;justify-content:space-between;margin:8px 0 12px;flex-wrap:wrap;gap:8px}
+    .sec-head h2{font-size:17px;margin:0}
+    .btns{display:flex;gap:8px;flex-wrap:wrap}
+    .btn{border:1px solid var(--mg-line);background:#fff;border-radius:8px;padding:7px 12px;font-size:13px;cursor:pointer;color:var(--mg-ink)}
+    .btn.primary{background:var(--mg-blue);color:#fff;border-color:var(--mg-blue);font-weight:600}
+    .search{border:1px solid var(--mg-line);border-radius:8px;padding:7px 12px;font-size:13px;min-width:180px}
+    .tbl-wrap{background:#fff;border:1px solid var(--mg-line);border-radius:12px;overflow-x:auto}
+    table{width:100%;border-collapse:collapse;font-size:13px;min-width:720px}
+    thead tr{background:#f7fafc;text-align:left}
+    th,td{padding:11px 12px;border-top:1px solid var(--mg-line)}
+    thead th{border-top:none;font-weight:600}
+    .pill{padding:2px 8px;border-radius:7px;font-size:11px;font-weight:600;display:inline-block}
+    .p-learner{background:#e6f1fb;color:#0c447c}
+    .p-instructor{background:#eeedfe;color:#26215c}
+    .p-admin{background:#fde9c8;color:#7a4b00}
+    .p-approved{background:#e1f5ee;color:#085041}
+    .p-pending{background:#faeeda;color:#854f0b}
+    .act{cursor:pointer;border:none;background:none;font-size:16px;padding:4px;color:var(--mg-muted)}
+    .act:hover{color:var(--mg-ink)}
+    .act.del:hover{color:var(--mg-red)}
+    .act.ok{color:var(--mg-green)}
+    .act.no{color:var(--mg-red)}
+    .empty{padding:26px;text-align:center;color:var(--mg-muted)}
+    /* modal */
+    .ov{position:fixed;inset:0;background:rgba(8,30,40,.45);display:none;align-items:center;justify-content:center;padding:18px;z-index:50}
+    .ov.show{display:flex}
+    .modal{background:#fff;border-radius:14px;max-width:460px;width:100%;padding:22px;box-shadow:0 18px 50px rgba(0,0,0,.2)}
+    .modal h3{margin:0 0 4px;font-size:18px}
+    .modal p.sub{margin:0 0 16px;font-size:13px;color:var(--mg-muted)}
+    .fld{margin-bottom:12px}
+    .fld label{display:block;font-size:12px;color:var(--mg-muted);margin-bottom:5px}
+    .fld input,.fld select{width:100%;padding:10px;border:1px solid var(--mg-line);border-radius:8px;font-size:14px}
+    .fld textarea{width:100%;padding:10px;border:1px solid var(--mg-line);border-radius:8px;font-size:13px;min-height:120px;font-family:monospace}
+    .modal-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
+    .note{font-size:12px;color:var(--mg-muted);background:#f7fafc;border:1px solid var(--mg-line);border-radius:8px;padding:10px;margin-bottom:12px}
+    .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--mg-ink);color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;display:none;z-index:60}
+    .toast.show{display:block}
+  </style>
 </head>
 <body>
-  <div class="topbar"><div class="wrap">
-    <div class="brand"><span class="dot"></span> Mr. Golisoda Training · Admin</div>
-    <button class="signout" onclick="doSignOut()">Sign out</button>
-  </div></div>
 
-  <div class="wrap page">
-    <div class="hero">
-      <h2>Admin Dashboard</h2>
-      <p>Approve new joiners and view your team. New sign-ups appear below as “pending”.</p>
+  <div class="ad-top">
+    <div class="ad-brand">
+      <div class="ad-logo" aria-hidden="true">🥤</div>
+      <div>
+        <h1>Mr. Golisoda Training · Admin</h1>
+        <p>South Asian Food &amp; Beverages LLP</p>
+      </div>
     </div>
-
-    <div class="sectiontitle">Pending Approvals ({{ pending|length }})</div>
-    {% if pending %}
-    <table class="tbl">
-      <tr><th>Name</th><th>Employee ID</th><th>Designation</th><th>Phone</th><th>Action</th></tr>
-      {% for u in pending %}
-      <tr id="row-{{ u['emp_id'] }}">
-        <td>{{ u['name'] }}</td>
-        <td>{{ u['emp_id'] }}</td>
-        <td>{{ u['designation'] }}</td>
-        <td>{{ u['phone'] }}</td>
-        <td>
-          <button class="mini mini-ok" onclick="approve('{{ u['emp_id'] }}')">Approve</button>
-          <button class="mini mini-no" onclick="reject('{{ u['emp_id'] }}')">Reject</button>
-        </td>
-      </tr>
-      {% endfor %}
-    </table>
-    {% else %}
-    <p style="color:var(--muted)">No pending approvals right now.</p>
-    {% endif %}
-
-    <div class="sectiontitle">Approved Staff ({{ approved|length }})</div>
-    {% if approved %}
-    <table class="tbl">
-      <tr><th>Name</th><th>Employee ID</th><th>Designation</th><th>Phone</th></tr>
-      {% for u in approved %}
-      <tr>
-        <td>{{ u['name'] }}</td>
-        <td>{{ u['emp_id'] }}</td>
-        <td>{{ u['designation'] }}</td>
-        <td>{{ u['phone'] }}</td>
-      </tr>
-      {% endfor %}
-    </table>
-    {% else %}
-    <p style="color:var(--muted)">No approved staff yet.</p>
-    {% endif %}
+    <div style="display:flex;align-items:center;gap:16px">
+      <div class="ad-when">
+        <div class="d" id="todayDate">—</div>
+        <div class="t" id="todayTime">—</div>
+      </div>
+      <button class="ad-signout" onclick="signOut()">Sign out</button>
+    </div>
   </div>
 
-<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+  <div class="ad-who">
+    <div class="pic" id="whoPic">AD</div>
+    <div>Logged in as <b id="whoName">Administrator</b> · ID <b id="whoId">ADMIN</b><span id="whoLast"></span></div>
+  </div>
+
+  <div class="wrap">
+
+    <div class="cards">
+      <div class="card"><div class="lbl">Total employees</div><div class="val" style="color:var(--mg-blue)" id="cTotal">—</div></div>
+      <div class="card"><div class="lbl">Pending approvals</div><div class="val" style="color:var(--mg-amber)" id="cPending">—</div></div>
+      <div class="card"><div class="lbl">Completion rate</div><div class="val" style="color:var(--mg-green)" id="cCompletion">—</div></div>
+      <div class="card"><div class="lbl">Average score</div><div class="val" style="color:#534ab7" id="cAvg">—</div></div>
+    </div>
+
+    <div class="sec-head">
+      <h2>Employee management</h2>
+      <div class="btns">
+        <input class="search" id="searchBox" placeholder="Search name, ID, designation…" oninput="renderTable()" />
+        <button class="btn" onclick="openBulk()">＋ Bulk add (CSV)</button>
+      </div>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th><th>Emp ID</th><th>Designation</th><th>Phone</th>
+            <th>Role</th><th>Status</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="empBody">
+          <tr><td colspan="7" class="empty">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- EDIT MODAL -->
+  <div class="ov" id="editOv">
+    <div class="modal">
+      <h3>Edit employee</h3>
+      <p class="sub" id="editSub">—</p>
+      <div class="fld"><label>Name</label><input id="eName" /></div>
+      <div class="fld"><label>Phone</label><input id="ePhone" /></div>
+      <div class="fld"><label>Designation</label><input id="eDesg" /></div>
+      <div class="fld"><label>Role</label>
+        <select id="eRole">
+          <option value="staff">Learner</option>
+          <option value="instructor">Instructor (trainer — can upload content)</option>
+          <option value="admin">Admin (full control)</option>
+        </select>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeModal('editOv')">Cancel</button>
+        <button class="btn primary" onclick="saveEdit()">Save changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RESET MODAL -->
+  <div class="ov" id="resetOv">
+    <div class="modal">
+      <h3>Reset password</h3>
+      <p class="sub" id="resetSub">—</p>
+      <div class="note">Set a temporary password and share it with the employee. They can use it to log in, then change it later.</div>
+      <div class="fld"><label>Temporary password (min 6 characters)</label><input id="rPw" value="Golisoda@123" /></div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeModal('resetOv')">Cancel</button>
+        <button class="btn primary" onclick="saveReset()">Set password</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BULK MODAL -->
+  <div class="ov" id="bulkOv">
+    <div class="modal">
+      <h3>Bulk add employees</h3>
+      <p class="sub">Paste CSV rows below.</p>
+      <div class="note">Columns: <b>name, emp_id, phone, designation, password</b> (password optional — default <b>Golisoda@123</b>).<br>First row must be the header. Example:<br>name,emp_id,phone,designation,password<br>Ravi Kumar,MG104,9876543210,BDE,</div>
+      <div class="fld">
+        <textarea id="bulkText" placeholder="name,emp_id,phone,designation,password
+Ravi Kumar,MG104,9876543210,BDE,
+Priya S,MG087,9876500000,State Head,"></textarea>
+      </div>
+      <div class="fld">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--mg-ink)">
+          <input type="checkbox" id="bulkApprove" style="width:auto" checked /> Auto-approve these employees (skip pending)
+        </label>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeModal('bulkOv')">Cancel</button>
+        <button class="btn primary" onclick="saveBulk()">Add employees</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
 </body>
 </html>
