@@ -16,7 +16,12 @@
     body{margin:0;background:var(--mg-bg);font-family:'Inter',system-ui,Arial,sans-serif;color:var(--mg-ink)}
     .ad-top{background:var(--mg-blue);color:#fff;padding:16px 22px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
     .ad-brand{display:flex;align-items:center;gap:14px}
-    .ad-logo{width:46px;height:46px;border-radius:50%;background:var(--mg-yellow);display:flex;align-items:center;justify-content:center;font-size:24px}
+    .ad-logo{width:52px;height:52px;border-radius:12px;background:#fff;display:flex;align-items:center;justify-content:center;padding:5px}
+    /* subtle brand watermark behind the page */
+    body::before{content:"";position:fixed;inset:0;background-image:var(--wm,none);
+      background-repeat:no-repeat;background-position:center 60%;background-size:440px;
+      opacity:.04;pointer-events:none;z-index:0}
+    .ad-top, .ad-who, .wrap, .ov, .toast{position:relative;z-index:1}
     .ad-brand h1{font-size:18px;margin:0;font-weight:700}
     .ad-brand p{margin:0;font-size:12px;color:#d7f3fd}
     .ad-when{text-align:right;font-size:13px}
@@ -78,10 +83,10 @@
 
   <div class="ad-top">
     <div class="ad-brand">
-      <div class="ad-logo" aria-hidden="true">🥤</div>
+      <div class="ad-logo"><img id="adLogo" alt="Mr. Golisoda" style="height:40px;width:auto;display:block" /></div>
       <div>
         <h1>Mr. Golisoda Training · Admin</h1>
-        <p>South Asian Food &amp; Beverages LLP</p>
+        <p>South Asian Food Corporation</p>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -455,6 +460,15 @@ Priya S,MG087,9876500000,State Head,"></textarea>
 
   <div class="toast" id="toast"></div>
 
+  <script src="{{ url_for('static', filename='js/brand_assets.js') }}"></script>
+  <script>
+    // Inject brand logo + subtle watermark
+    (function(){
+      if(typeof BRAND === 'undefined') return;
+      var al = document.getElementById('adLogo'); if(al) al.src = BRAND.logo;
+      document.body.style.setProperty('--wm', 'url(' + BRAND.mascot + ')');
+    })();
+  </script>
   <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
   <script src="{{ url_for('static', filename='js/assess-admin.js') }}"></script>
   <script src="{{ url_for('static', filename='js/content-admin.js') }}"></script>
