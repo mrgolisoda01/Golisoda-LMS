@@ -279,13 +279,68 @@ Who sets franchise fixed expenses?,RSM,State Head,NSM,BDM,B,Roles"></textarea>
   <!-- ============ SETTINGS TAB ============ -->
   <div class="wrap tabpane" id="tabSet" style="display:none">
     <div class="sec-head"><h2>Settings</h2></div>
-    <div style="background:#fff;border:1px solid var(--mg-line);border-radius:12px;padding:20px;max-width:480px">
-      <h3 style="margin:0 0 4px;font-size:16px">Change your password</h3>
-      <p style="margin:0 0 16px;font-size:13px;color:var(--mg-muted)">Keep your admin account secure. Your password is private — no one else can see it.</p>
-      <div class="fld"><label>Current password</label><input id="cpCurrent" type="password" placeholder="Enter current password" /></div>
-      <div class="fld"><label>New password (min 6 characters)</label><input id="cpNew" type="password" placeholder="Enter new password" /></div>
-      <div class="fld"><label>Confirm new password</label><input id="cpConfirm" type="password" placeholder="Re-enter new password" /></div>
-      <div style="text-align:right"><button class="btn primary" onclick="changePassword()">Change password</button></div>
+
+    <!-- Team overview -->
+    <div style="margin-bottom:18px">
+      <h3 style="font-size:15px;margin:0 0 10px">Team overview</h3>
+      <div class="cards" style="grid-template-columns:repeat(5,1fr)">
+        <div class="card"><div class="lbl">Total users</div><div class="val" style="color:var(--mg-blue);font-size:22px" id="soTotal">—</div></div>
+        <div class="card"><div class="lbl">Learners</div><div class="val" style="color:#0c447c;font-size:22px" id="soLearners">—</div></div>
+        <div class="card"><div class="lbl">Instructors</div><div class="val" style="color:#534ab7;font-size:22px" id="soInstructors">—</div></div>
+        <div class="card"><div class="lbl">Admins</div><div class="val" style="color:#7a4b00;font-size:22px" id="soAdmins">—</div></div>
+        <div class="card"><div class="lbl">Pending</div><div class="val" style="color:var(--mg-amber);font-size:22px" id="soPending">—</div></div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px">
+      <!-- Admins list -->
+      <div style="background:#fff;border:1px solid var(--mg-line);border-radius:12px;padding:16px">
+        <h3 style="font-size:15px;margin:0 0 10px">Admins</h3>
+        <div id="soAdminList"><div class="empty">Loading…</div></div>
+      </div>
+      <!-- Instructors list -->
+      <div style="background:#fff;border:1px solid var(--mg-line);border-radius:12px;padding:16px">
+        <h3 style="font-size:15px;margin:0 0 10px">Instructors</h3>
+        <div id="soInstList"><div class="empty">Loading…</div></div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <!-- Quick add user -->
+      <div style="background:#fff;border:1px solid var(--mg-line);border-radius:12px;padding:18px">
+        <h3 style="font-size:15px;margin:0 0 4px">Add a user</h3>
+        <p style="margin:0 0 14px;font-size:13px;color:var(--mg-muted)">Add people one at a time. For many at once, use Bulk add on the Employees tab.</p>
+        <div class="fld"><label>Full name</label><input id="quName" /></div>
+        <div class="fld"><label>Employee ID</label><input id="quEmp" /></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="fld"><label>Phone</label><input id="quPhone" /></div>
+          <div class="fld"><label>Designation</label><input id="quDesg" placeholder="BDE, State Head…" /></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="fld"><label>Role</label>
+            <select id="quRole"><option value="staff">Learner</option><option value="instructor">Instructor</option><option value="admin">Admin</option></select>
+          </div>
+          <div class="fld"><label>Password (blank = Golisoda@123)</label><input id="quPw" placeholder="Golisoda@123" /></div>
+        </div>
+        <div style="text-align:right"><button class="btn primary" onclick="quickAddUser()">Add user</button></div>
+      </div>
+
+      <!-- Change password + Backup -->
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div style="background:#fff;border:1px solid var(--mg-line);border-radius:12px;padding:18px">
+          <h3 style="margin:0 0 4px;font-size:15px">Change your password</h3>
+          <p style="margin:0 0 14px;font-size:13px;color:var(--mg-muted)">Your password is private — keep it safe.</p>
+          <div class="fld"><label>Current password</label><input id="cpCurrent" type="password" /></div>
+          <div class="fld"><label>New password (min 6)</label><input id="cpNew" type="password" /></div>
+          <div class="fld"><label>Confirm new password</label><input id="cpConfirm" type="password" /></div>
+          <div style="text-align:right"><button class="btn primary" onclick="changePassword()">Change password</button></div>
+        </div>
+        <div style="background:#fff;border:1px solid var(--mg-line);border-radius:12px;padding:18px">
+          <h3 style="margin:0 0 4px;font-size:15px">Backup / export data</h3>
+          <p style="margin:0 0 14px;font-size:13px;color:var(--mg-muted)">Download all employees, scores, and assessment results as a CSV file. Keep a copy for safety.</p>
+          <button class="btn primary" onclick="exportData()">⬇ Download backup</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -378,6 +433,69 @@ Priya S,MG087,9876500000,State Head,"></textarea>
         loadContent();
         if(typeof buildVideoRoleChecks === 'function') buildVideoRoleChecks();
       }
+      if(which === 'set') loadSettings();
+    }
+
+    async function loadSettings(){
+      try{
+        const d = await (await fetch('/api/admin/team-overview')).json();
+        if(!d.ok) return;
+        document.getElementById('soTotal').textContent = d.counts.total;
+        document.getElementById('soLearners').textContent = d.counts.learners;
+        document.getElementById('soInstructors').textContent = d.counts.instructors;
+        document.getElementById('soAdmins').textContent = d.counts.admins;
+        document.getElementById('soPending').textContent = d.counts.pending;
+
+        const esc = s => String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const aBox = document.getElementById('soAdminList');
+        aBox.innerHTML = d.admins.length ? d.admins.map(a=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--mg-line);font-size:13px">
+            <span><b>${esc(a.name)}</b> · ${esc(a.emp_id)}</span>
+            <button class="btn" style="padding:4px 10px;color:var(--mg-red)" onclick="removeAdmin('${esc(a.emp_id)}')">Remove admin</button>
+          </div>`).join('') : '<div class="empty">No admins.</div>';
+
+        const iBox = document.getElementById('soInstList');
+        iBox.innerHTML = d.instructors.length ? d.instructors.map(i=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--mg-line);font-size:13px">
+            <span><b>${esc(i.name)}</b> · ${esc(i.emp_id)} <span style="color:var(--mg-muted)">(${esc(i.designation||'')})</span></span>
+            <button class="btn" style="padding:4px 10px;color:var(--mg-green)" onclick="makeAdmin('${esc(i.emp_id)}')">Make admin</button>
+          </div>`).join('') : '<div class="empty">No instructors yet.</div>';
+      }catch(e){}
+    }
+
+    async function quickAddUser(){
+      const body = {
+        name: document.getElementById('quName').value.trim(),
+        emp_id: document.getElementById('quEmp').value.trim(),
+        phone: document.getElementById('quPhone').value.trim(),
+        designation: document.getElementById('quDesg').value.trim(),
+        role: document.getElementById('quRole').value,
+        password: document.getElementById('quPw').value,
+        auto_approve: true
+      };
+      if(!body.name || !body.emp_id){ toast('Name and Employee ID are required.'); return; }
+      const r = await (await fetch('/api/admin/quick-add-user',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+      if(r.ok){
+        toast(r.msg);
+        ['quName','quEmp','quPhone','quDesg','quPw'].forEach(id=>document.getElementById(id).value='');
+        loadSettings();
+        if(typeof loadDashboard==='function') loadDashboard();
+      } else toast(r.msg||'Could not add.');
+    }
+
+    async function makeAdmin(emp_id){
+      if(!confirm('Give this person full admin rights?')) return;
+      const r = await (await fetch('/api/admin/set-admin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({emp_id,make_admin:true})})).json();
+      if(r.ok){ toast(r.msg); loadSettings(); } else toast(r.msg||'Failed.');
+    }
+    async function removeAdmin(emp_id){
+      if(!confirm('Remove admin rights from this person?')) return;
+      const r = await (await fetch('/api/admin/set-admin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({emp_id,make_admin:false})})).json();
+      if(r.ok){ toast(r.msg); loadSettings(); } else toast(r.msg||'Failed.');
+    }
+
+    function exportData(){
+      window.location.href = '/api/admin/export-data';
     }
 
     async function changePassword(){
