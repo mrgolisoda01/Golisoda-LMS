@@ -536,6 +536,117 @@ def api_admin_delete_user():
     return jsonify(ok=True, msg="Employee deleted.")
 
 
+# ---------- SETTINGS: team overview, admins/instructors, quick add, backup ----------
+@app.route("/api/admin/team-overview")
+@admin_required
+def api_admin_team_overview():
+    db = get_db()
+    def cnt(q, *a): return db.execute(q, a).fetchone()["c"]
+    total = cnt("SELECT COUNT(*) c FROM users")
+    learners = cnt("SELECT COUNT(*) c FROM users WHERE role='staff'")
+    instructors = cnt("SELECT COUNT(*) c FROM users WHERE role='instructor'")
+    admins = cnt("SELECT COUNT(*) c FROM users WHERE role='admin'")
+    pending = cnt("SELECT COUNT(*) c FROM users WHERE status='pending'")
+    admin_rows = db.execute("SELECT emp_id,name,designation,status FROM users WHERE role='admin' ORDER BY name").fetchall()
+    inst_rows = db.execute("SELECT emp_id,name,designation,status FROM users WHERE role='instructor' ORDER BY name").fetchall()
+    return jsonify(ok=True,
+                   counts={"total": total, "learners": learners, "instructors": instructors,
+                           "admins": admins, "pending": pending},
+                   admins=[dict(r) for r in admin_rows],
+                   instructors=[dict(r) for r in inst_rows])
+
+
+@app.route("/api/admin/quick-add-user", methods=["POST"])
+@admin_required
+def api_admin_quick_add_user():
+    """Add a single user directly (name, emp_id, phone, designation, role, password)."""
+    d = request.get_json(force=True)
+    name = (d.get("name") or "").strip()
+    emp_id = (d.get("emp_id") or "").strip()
+    phone = (d.get("phone") or "").strip()
+    desg = (d.get("designation") or "").strip()
+    role = (d.get("role") or "staff").strip()
+    pw = d.get("password") or ""
+    auto_approve = d.get("auto_approve", True)
+
+    if not name or not emp_id:
+        return jsonify(ok=False, msg="Name and Employee ID are required."), 400
+    if role not in VALID_ROLES:
+        role = "staff"
+    if not pw:
+        pw = "Golisoda@123"
+    if len(pw) < 6:
+        return jsonify(ok=False, msg="Password must be at least 6 characters."), 400
+
+    db = get_db()
+    if db.execute("SELECT 1 FROM users WHERE emp_id=?", (emp_id,)).fetchone():
+        return jsonify(ok=False, msg="This Employee ID already exists."), 400
+
+    status = "approved" if auto_approve else "pending"
+    must_reset = 1 if pw == "Golisoda@123" else 0
+    db.execute(
+        "INSERT INTO users (emp_id,name,phone,designation,password_hash,status,role,created_at,must_reset) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (emp_id, name, phone, desg, generate_password_hash(pw), status, role,
+         datetime.utcnow().isoformat(), must_reset)
+    )
+    db.commit()
+    return jsonify(ok=True, msg=f"{name} added as {role}.")
+
+
+@app.route("/api/admin/set-admin", methods=["POST"])
+@admin_required
+def api_admin_set_admin():
+    """Promote a user to admin, or remove admin rights (back to staff)."""
+    d = request.get_json(force=True)
+    emp_id = (d.get("emp_id") or "").strip()
+    make_admin = d.get("make_admin", True)
+    db = get_db()
+    target = db.execute("SELECT * FROM users WHERE emp_id=?", (emp_id,)).fetchone()
+    if not target:
+        return jsonify(ok=False, msg="User not found."), 404
+    if not make_admin and target["role"] == "admin":
+        admin_count = db.execute("SELECT COUNT(*) c FROM users WHERE role='admin'").fetchone()["c"]
+        if admin_count <= 1:
+            return jsonify(ok=False, msg="Cannot remove the only admin."), 400
+    new_role = "admin" if make_admin else "staff"
+    db.execute("UPDATE users SET role=?, status='approved' WHERE emp_id=?", (new_role, emp_id))
+    db.commit()
+    return jsonify(ok=True, msg=("Now an admin." if make_admin else "Admin rights removed."))
+
+
+@app.route("/api/admin/export-data")
+@admin_required
+def api_admin_export_data():
+    """Export all users + scores + assessment results as a single CSV (backup)."""
+    db = get_db()
+    out = io.StringIO()
+    w = csv.writer(out)
+
+    w.writerow(["=== EMPLOYEES ==="])
+    w.writerow(["emp_id", "name", "phone", "designation", "role", "status", "created_at", "last_login"])
+    for u in db.execute("SELECT emp_id,name,phone,designation,role,status,created_at,last_login FROM users ORDER BY name").fetchall():
+        w.writerow([u["emp_id"], u["name"], u["phone"], u["designation"], u["role"], u["status"], u["created_at"], u["last_login"]])
+
+    w.writerow([])
+    w.writerow(["=== MODULE QUIZ SCORES ==="])
+    w.writerow(["emp_id", "module_id", "percent", "passed", "taken_at"])
+    for s in db.execute("SELECT emp_id,module_id,percent,passed,taken_at FROM scores ORDER BY taken_at").fetchall():
+        w.writerow([s["emp_id"], s["module_id"], s["percent"], s["passed"], s["taken_at"]])
+
+    w.writerow([])
+    w.writerow(["=== ASSESSMENT RESULTS ==="])
+    w.writerow(["emp_id", "assessment_id", "percent", "passed", "taken_at"])
+    for r in db.execute("SELECT emp_id,assessment_id,percent,passed,taken_at FROM assessment_results ORDER BY taken_at").fetchall():
+        w.writerow([r["emp_id"], r["assessment_id"], r["percent"], r["passed"], r["taken_at"]])
+
+    from flask import Response
+    csv_data = out.getvalue()
+    fname = "golisoda_backup_" + datetime.utcnow().strftime("%Y%m%d_%H%M") + ".csv"
+    return Response(csv_data, mimetype="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
 @app.route("/api/admin/bulk-add", methods=["POST"])
 @admin_required
 def api_admin_bulk_add():
