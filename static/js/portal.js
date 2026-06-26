@@ -183,6 +183,9 @@ function isUnlocked(i){
 function drawGrid(){
   const grid = $('ind-grid');
   if(!grid) return;
+  // show/hide the legacy slide-module section based on whether any exist
+  const wrap = $('slideModsWrap');
+  if(wrap) wrap.style.display = (INDUCTION && INDUCTION.length > 0) ? 'block' : 'none';
   grid.innerHTML = '';
   INDUCTION.forEach((m, i)=>{
     const unlocked = isUnlocked(i);
