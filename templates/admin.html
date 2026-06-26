@@ -105,6 +105,7 @@
     <button class="tabbtn" id="tabIndBtn" onclick="switchTab('ind')">📘 Induction</button>
     <button class="tabbtn" id="tabTrnBtn" onclick="switchTab('trn')">🎓 Training</button>
     <button class="tabbtn" id="tabVidBtn" onclick="switchTab('vid')">🎥 Videos</button>
+    <button class="tabbtn" id="tabCrtBtn" onclick="switchTab('crt')">📜 Certificates</button>
     <button class="tabbtn" id="tabSetBtn" onclick="switchTab('set')">⚙️ Settings</button>
   </div>
 
@@ -344,6 +345,47 @@ Who sets franchise fixed expenses?,RSM,State Head,NSM,BDM,B,Roles"></textarea>
     </div>
   </div>
 
+  <!-- ============ CERTIFICATES (TRACKS) TAB ============ -->
+  <div class="wrap tabpane" id="tabCrt" style="display:none">
+    <div class="sec-head">
+      <h2>Certificate tracks</h2>
+      <button class="btn primary" onclick="openTrackForm()">＋ Add certificate track</button>
+    </div>
+    <div class="note" style="margin-bottom:14px">
+      Create completion certificates like "Certified BDE" or "Induction Completed". Set what's required —
+      complete all the modules for a role, and/or pass an assessment. When a learner qualifies, the certificate is awarded automatically.
+    </div>
+    <div id="trackList"><div class="empty">Loading…</div></div>
+  </div>
+
+  <!-- CERT TRACK MODAL -->
+  <div class="ov" id="trackOv">
+    <div class="modal">
+      <h3 id="tkFormTitle">Add certificate track</h3>
+      <div class="fld"><label>Certificate name (you type this)</label><input id="tkName" placeholder="e.g. Certified BDE" /></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="fld"><label>Track type</label>
+          <select id="tkKind"><option value="training">Training modules</option><option value="induction">Induction modules</option></select>
+        </div>
+        <div class="fld"><label>For which roles?</label>
+          <div id="tkRoleChecks" style="padding:5px 0"></div>
+        </div>
+      </div>
+      <div class="fld">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--mg-ink)">
+          <input type="checkbox" id="tkReqModules" style="width:auto" checked> Require completing all matching modules
+        </label>
+      </div>
+      <div class="fld"><label>Also require passing an assessment (optional)</label>
+        <select id="tkReqAssess"><option value="none">— No assessment required —</option></select>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeModal('trackOv')">Cancel</button>
+        <button class="btn primary" onclick="saveTrack()">Save track</button>
+      </div>
+    </div>
+  </div>
+
   <!-- RESULTS MODAL -->
   <div class="ov" id="resultsOv">
     <div class="modal" style="max-width:760px">
@@ -418,10 +460,10 @@ Priya S,MG087,9876500000,State Head,"></textarea>
   <script src="{{ url_for('static', filename='js/content-admin.js') }}"></script>
   <script>
     const TABS = {
-      emp: 'tabEmp', as: 'tabAs', ind: 'tabInd', trn: 'tabTrn', vid: 'tabVid', set: 'tabSet'
+      emp: 'tabEmp', as: 'tabAs', ind: 'tabInd', trn: 'tabTrn', vid: 'tabVid', crt: 'tabCrt', set: 'tabSet'
     };
     const TAB_BTNS = {
-      emp: 'tabEmpBtn', as: 'tabAsBtn', ind: 'tabIndBtn', trn: 'tabTrnBtn', vid: 'tabVidBtn', set: 'tabSetBtn'
+      emp: 'tabEmpBtn', as: 'tabAsBtn', ind: 'tabIndBtn', trn: 'tabTrnBtn', vid: 'tabVidBtn', crt: 'tabCrtBtn', set: 'tabSetBtn'
     };
     function switchTab(which){
       Object.keys(TABS).forEach(k=>{
@@ -433,6 +475,7 @@ Priya S,MG087,9876500000,State Head,"></textarea>
         loadContent();
         if(typeof buildVideoRoleChecks === 'function') buildVideoRoleChecks();
       }
+      if(which === 'crt') loadTracks();
       if(which === 'set') loadSettings();
     }
 
