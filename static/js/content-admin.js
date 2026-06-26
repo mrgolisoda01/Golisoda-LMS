@@ -159,3 +159,85 @@ function buildVideoRoleChecks(){
   const box = $c("vRoleChecks"); if(!box) return;
   box.innerHTML = C_ROLES.map(r=>`<label style="display:inline-flex;align-items:center;gap:5px;margin:3px 10px 3px 0;font-size:13px"><input type="checkbox" class="vroleck" value="${r}" style="width:auto"> ${r}</label>`).join("");
 }
+
+/* ============================================================
+   Certificate Tracks management (admin/instructor)
+   ============================================================ */
+let TRACKS = [], TRACK_ASSESS = [], EDIT_TRACK = null;
+
+async function loadTracks(){
+  const d = await apiC("/api/admin/cert-tracks");
+  if(!d.ok){ toastC("Not allowed."); return; }
+  TRACKS = d.tracks || []; TRACK_ASSESS = d.assessments || [];
+  C_ROLES = d.role_choices || C_ROLES; C_ISADMIN = d.is_admin;
+  renderTracks();
+  buildTrackRoleChecks();
+  buildTrackAssessDropdown();
+}
+
+function buildTrackRoleChecks(){
+  const box = $c("tkRoleChecks"); if(!box) return;
+  box.innerHTML = C_ROLES.map(r=>`<label style="display:inline-flex;align-items:center;gap:5px;margin:3px 10px 3px 0;font-size:12px"><input type="checkbox" class="tkroleck" value="${r}" style="width:auto"> ${r}</label>`).join("");
+}
+function buildTrackAssessDropdown(){
+  const sel = $c("tkReqAssess"); if(!sel) return;
+  sel.innerHTML = '<option value="none">— No assessment required —</option>' +
+    TRACK_ASSESS.map(a=>`<option value="${a.id}">${escC(a.title)}</option>`).join("");
+}
+
+function renderTracks(){
+  const box = $c("trackList"); if(!box) return;
+  if(TRACKS.length===0){ box.innerHTML = '<div class="empty">No certificate tracks yet.</div>'; return; }
+  box.innerHTML = TRACKS.map(t=>{
+    const statusPill = t.status==="live" ? '<span class="pill p-approved">Live</span>' : '<span class="pill p-pending">Pending approval</span>';
+    const approveBtn = (t.status!=="live" && C_ISADMIN) ? `<button class="btn" onclick="approveTrack(${t.id})" style="color:var(--mg-green)">Approve</button>` : "";
+    let req = [];
+    if(t.require_modules) req.push("complete all "+t.kind+" modules");
+    if(t.assessment_title) req.push("pass: "+escC(t.assessment_title));
+    return `<div style="border:1px solid var(--mg-line);border-radius:10px;padding:13px;margin-bottom:10px;background:#fff">
+      <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:700">🏅 ${escC(t.cert_name)} ${statusPill}</div>
+          <div style="font-size:12px;color:var(--mg-muted);margin-top:4px">For: <b>${escC(t.roles)}</b> · Requires: ${req.join(" + ")||"(none)"}</div>
+          <div style="font-size:12px;color:var(--mg-muted);margin-top:3px">Awarded to <b>${t.issued_count}</b> employee(s)</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${approveBtn}
+          <button class="btn" onclick="editTrack(${t.id})">Edit</button>
+          <button class="btn" onclick="deleteTrack(${t.id})" style="color:var(--mg-red)">Delete</button></div>
+      </div></div>`;
+  }).join("");
+}
+
+function openTrackForm(){
+  EDIT_TRACK = null;
+  $c("tkFormTitle").textContent = "Add certificate track";
+  $c("tkName").value=""; $c("tkKind").value="training"; $c("tkReqModules").checked=true; $c("tkReqAssess").value="none";
+  document.querySelectorAll(".tkroleck").forEach(c=>c.checked=false);
+  $c("trackOv").classList.add("show");
+}
+function editTrack(id){
+  const t = TRACKS.find(x=>x.id===id); if(!t) return;
+  EDIT_TRACK = id;
+  $c("tkFormTitle").textContent = "Edit certificate track";
+  $c("tkName").value = t.cert_name; $c("tkKind").value = t.kind;
+  $c("tkReqModules").checked = !!t.require_modules;
+  $c("tkReqAssess").value = t.require_assessment_id || "none";
+  const checked = (t.roles||"all").split(",").map(s=>s.trim().toLowerCase());
+  document.querySelectorAll(".tkroleck").forEach(c=>{ c.checked = checked.includes(c.value.toLowerCase()); });
+  $c("trackOv").classList.add("show");
+}
+async function saveTrack(){
+  const checked = Array.from(document.querySelectorAll(".tkroleck:checked")).map(c=>c.value);
+  const roles = checked.length ? checked.join(",") : "all";
+  const body = {
+    id: EDIT_TRACK, cert_name: $c("tkName").value.trim(), kind: $c("tkKind").value,
+    roles, require_modules: $c("tkReqModules").checked,
+    require_assessment_id: $c("tkReqAssess").value
+  };
+  if(!body.cert_name){ toastC("Certificate name is required."); return; }
+  const r = await apiC("/api/admin/save-cert-track", body);
+  if(r.ok){ $c("trackOv").classList.remove("show"); toastC(r.msg); loadTracks(); }
+  else toastC(r.msg||"Could not save.");
+}
+async function approveTrack(id){ const r=await apiC("/api/admin/approve-cert-track",{id}); if(r.ok){toastC(r.msg);loadTracks();} }
+async function deleteTrack(id){ if(!confirm("Delete this certificate track? Issued certificates will be removed."))return; const r=await apiC("/api/admin/delete-cert-track",{id}); if(r.ok){toastC("Deleted.");loadTracks();} }
