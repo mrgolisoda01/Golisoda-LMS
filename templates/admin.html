@@ -105,6 +105,7 @@
     <button class="tabbtn" id="tabIndBtn" onclick="switchTab('ind')">📘 Induction</button>
     <button class="tabbtn" id="tabTrnBtn" onclick="switchTab('trn')">🎓 Training</button>
     <button class="tabbtn" id="tabVidBtn" onclick="switchTab('vid')">🎥 Videos</button>
+    <button class="tabbtn" id="tabSetBtn" onclick="switchTab('set')">⚙️ Settings</button>
   </div>
 
   <!-- ============ EMPLOYEES TAB ============ -->
@@ -275,6 +276,19 @@ Who sets franchise fixed expenses?,RSM,State Head,NSM,BDM,B,Roles"></textarea>
     </div>
   </div>
 
+  <!-- ============ SETTINGS TAB ============ -->
+  <div class="wrap tabpane" id="tabSet" style="display:none">
+    <div class="sec-head"><h2>Settings</h2></div>
+    <div style="background:#fff;border:1px solid var(--mg-line);border-radius:12px;padding:20px;max-width:480px">
+      <h3 style="margin:0 0 4px;font-size:16px">Change your password</h3>
+      <p style="margin:0 0 16px;font-size:13px;color:var(--mg-muted)">Keep your admin account secure. Your password is private — no one else can see it.</p>
+      <div class="fld"><label>Current password</label><input id="cpCurrent" type="password" placeholder="Enter current password" /></div>
+      <div class="fld"><label>New password (min 6 characters)</label><input id="cpNew" type="password" placeholder="Enter new password" /></div>
+      <div class="fld"><label>Confirm new password</label><input id="cpConfirm" type="password" placeholder="Re-enter new password" /></div>
+      <div style="text-align:right"><button class="btn primary" onclick="changePassword()">Change password</button></div>
+    </div>
+  </div>
+
   <!-- RESULTS MODAL -->
   <div class="ov" id="resultsOv">
     <div class="modal" style="max-width:760px">
@@ -349,10 +363,10 @@ Priya S,MG087,9876500000,State Head,"></textarea>
   <script src="{{ url_for('static', filename='js/content-admin.js') }}"></script>
   <script>
     const TABS = {
-      emp: 'tabEmp', as: 'tabAs', ind: 'tabInd', trn: 'tabTrn', vid: 'tabVid'
+      emp: 'tabEmp', as: 'tabAs', ind: 'tabInd', trn: 'tabTrn', vid: 'tabVid', set: 'tabSet'
     };
     const TAB_BTNS = {
-      emp: 'tabEmpBtn', as: 'tabAsBtn', ind: 'tabIndBtn', trn: 'tabTrnBtn', vid: 'tabVidBtn'
+      emp: 'tabEmpBtn', as: 'tabAsBtn', ind: 'tabIndBtn', trn: 'tabTrnBtn', vid: 'tabVidBtn', set: 'tabSetBtn'
     };
     function switchTab(which){
       Object.keys(TABS).forEach(k=>{
@@ -364,6 +378,29 @@ Priya S,MG087,9876500000,State Head,"></textarea>
         loadContent();
         if(typeof buildVideoRoleChecks === 'function') buildVideoRoleChecks();
       }
+    }
+
+    async function changePassword(){
+      const cur = document.getElementById('cpCurrent').value;
+      const nw = document.getElementById('cpNew').value;
+      const cf = document.getElementById('cpConfirm').value;
+      if(!cur || !nw){ toast('Enter your current and new password.'); return; }
+      if(nw !== cf){ toast('New passwords do not match.'); return; }
+      if(nw.length < 6){ toast('New password must be at least 6 characters.'); return; }
+      try{
+        const r = await (await fetch('/api/change-password', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ current_password: cur, new_password: nw })
+        })).json();
+        if(r.ok){
+          toast('Password changed successfully ✓');
+          document.getElementById('cpCurrent').value='';
+          document.getElementById('cpNew').value='';
+          document.getElementById('cpConfirm').value='';
+        } else {
+          toast(r.msg || 'Could not change password.');
+        }
+      }catch(e){ toast('Something went wrong.'); }
     }
   </script>
 </body>
