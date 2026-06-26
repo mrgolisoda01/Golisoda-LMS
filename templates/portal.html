@@ -115,13 +115,15 @@
       <p class="meta">Use the tabs above to move between Induction Modules, Assessments, Videos, and your Certificates.</p>
     </div>
 
-    <!-- ============ INDUCTION MODULES (existing system) ============ -->
+    <!-- ============ INDUCTION MODULES ============ -->
     <div id="tab-induction" class="tabpane">
-      <!-- HOME / GRID -->
+      <!-- legacy slide system (hidden unless slide-modules exist) -->
       <div id="p-home" class="page">
-        <div class="sectiontitle">Induction — for everyone</div>
-        <p class="meta" style="margin-bottom:10px">Pass each module's assessment at 90% to unlock the next.</p>
-        <div class="grid" id="ind-grid"></div>
+        <div id="slideModsWrap" style="display:none">
+          <div class="sectiontitle">Induction — for everyone</div>
+          <p class="meta" style="margin-bottom:10px">Pass each module's assessment at 90% to unlock the next.</p>
+          <div class="grid" id="ind-grid"></div>
+        </div>
       </div>
       <!-- VIEWER -->
       <div id="p-view" class="page hide">
@@ -133,9 +135,10 @@
         <div class="crumb" onclick="goHome()">‹ Back to Modules</div>
         <div id="quizarea"></div>
       </div>
-      <!-- FILE-BASED DOCUMENT MODULES -->
+      <!-- DOCUMENT MODULES (uploaded PDF/HTML) -->
       <div id="p-home-files">
-        <div class="sectiontitle" style="margin-top:24px">Document modules</div>
+        <div class="sectiontitle">Induction Modules</div>
+        <p class="meta" style="margin-bottom:10px">Open each module, view it for the required time, then mark it complete.</p>
         <div id="indFileBox"><div class="empty">Loading…</div></div>
       </div>
     </div>
