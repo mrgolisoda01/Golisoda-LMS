@@ -101,9 +101,15 @@ function openFileModule(id, title, link, minMins, alreadyDone){
 
 async function completeFileModule(){
   if(!MOD_VIEWING) return;
-  try{ await fetch('/api/content/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({module_id:MOD_VIEWING.id})}); }catch(e){}
+  let newCerts = [];
+  try{
+    const r = await (await fetch('/api/content/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({module_id:MOD_VIEWING.id})})).json();
+    newCerts = (r && r.new_certificates) || [];
+  }catch(e){}
   closeFileModule();
-  // reload whichever tab is active
+  if(newCerts.length){
+    alert("🎉 Congratulations! You earned: " + newCerts.join(", ") + "\nCheck your Certificates tab.");
+  }
   const active = document.querySelector('.pt-tab.active').getAttribute('data-tab');
   if(active==='induction') loadFileModules('induction');
   if(active==='training') loadFileModules('training');
@@ -380,12 +386,14 @@ async function submitAssessment(){
   catch(e){ alert('Submit failed.'); return; }
   if(!d.ok){ alert(d.msg||'Submit failed.'); return; }
   AS_LASTCERT = (d.passed && d.cert) ? d.cert : null;
+  const newCerts = (d.new_certificates) || [];
   $('as-result').innerHTML = `
     <div class="qcard" style="text-align:center;padding:30px">
       <div class="meta">${esc(AS_CUR.title)}</div>
       <div style="font-size:50px;font-weight:800;margin:6px 0;color:${d.passed?'var(--mg-green)':'var(--mg-red)'}">${d.percent}%</div>
       <div style="font-size:16px;font-weight:600">${d.passed?'Congratulations — you passed!':'Not passed this time.'}</div>
       <div class="meta" style="margin-top:8px">You answered ${d.score} of ${d.total} correctly. Pass mark is ${d.pass_percent}%.</div>
+      ${newCerts.length?`<div style="margin-top:12px;padding:10px;background:#e1f5ee;border-radius:8px;color:#085041;font-weight:600">🎉 You also earned: ${newCerts.map(esc).join(", ")}!</div>`:''}
       <div style="margin-top:18px">
         <button class="btn btn-sec" onclick="loadAssessments()">Back to assessments</button>
         ${AS_LASTCERT?'<button class="btn btn-pri" onclick="viewCertFromResult()">View certificate</button>':''}
@@ -409,21 +417,32 @@ async function loadCertificates(){
     const d = await (await fetch('/api/my-certificates')).json();
     const list = (d && d.certificates) || [];
     if(list.length===0){ box.innerHTML = '<div class="empty">No certificates yet. Pass an assessment to earn one.</div>'; return; }
-    box.innerHTML = list.map((c,i)=>`
-      <div class="as-card">
+    box.innerHTML = list.map((c,i)=>{
+      const isCompletion = c.type === 'completion';
+      const scoreLine = (c.score!=null) ? `Score ${c.score}% · ${esc(c.date)}` : esc(c.date);
+      const icon = isCompletion ? '🎖️' : '🏅';
+      const tag = isCompletion ? '<span class="badge b-pass">Completion</span>' : '';
+      return `<div class="as-card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-          <div><h4>🏅 ${esc(c.assessment)}</h4>
-            <div class="meta">Score ${c.score}% · ${esc(c.date)}</div></div>
+          <div><h4>${icon} ${esc(c.assessment)} ${tag}</h4>
+            <div class="meta">${scoreLine}</div></div>
           <button class="btn btn-pri" onclick='openCert(${JSON.stringify(c).replace(/'/g,"&#39;")})'>View certificate</button>
-        </div></div>`).join('');
+        </div></div>`;
+    }).join('');
   }catch(e){ box.innerHTML = '<div class="empty">Could not load certificates.</div>'; }
 }
 
 function openCert(c){
   $('certName').textContent = c.name;
   $('certAssessment').textContent = c.assessment;
-  $('certScore').textContent = c.score + '%';
-  $('certDate').textContent = c.date;
+  // completion certs have no score — show only date; assessment certs show score + date
+  const scoreEl = $('certScore').parentElement;
+  if(c.score!=null){
+    $('certScore').textContent = c.score + '%';
+    scoreEl.innerHTML = 'with a score of <b id="certScore">'+c.score+'%</b> &nbsp;·&nbsp; <span id="certDate">'+esc(c.date)+'</span>';
+  } else {
+    scoreEl.innerHTML = 'Awarded on <span id="certDate">'+esc(c.date)+'</span>';
+  }
   document.querySelector('#tab-certs .sectiontitle').style.display='none';
   $('certListBox').style.display='none';
   $('certView').classList.remove('hide');
