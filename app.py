@@ -189,6 +189,30 @@ def init_db():
         )
     """)
 
+    # ---- Certificate Tracks (completion certificates) ----
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS certificate_tracks (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            cert_name     TEXT NOT NULL,                    -- e.g. "Certified BDE"
+            kind          TEXT NOT NULL DEFAULT 'training',  -- 'induction' or 'training'
+            roles         TEXT NOT NULL DEFAULT 'all',       -- which roles this applies to
+            require_modules INTEGER NOT NULL DEFAULT 1,      -- must complete all matching modules
+            require_assessment_id INTEGER,                   -- optional: must pass this assessment (NULL = none)
+            status        TEXT NOT NULL DEFAULT 'live',      -- live / pending
+            created_by    TEXT,
+            created_at    TEXT
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS issued_certificates (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            track_id    INTEGER NOT NULL,
+            emp_id      TEXT NOT NULL,
+            cert_name   TEXT NOT NULL,
+            issued_at   TEXT
+        )
+    """)
+
     # --- Safe migration: add columns that may not exist on older DBs ---
     if not _column_exists(db, "users", "must_reset"):
         db.execute("ALTER TABLE users ADD COLUMN must_reset INTEGER NOT NULL DEFAULT 0")
@@ -857,17 +881,19 @@ def api_admin_assessment_results():
 @app.route("/api/my-certificates")
 @login_required
 def api_my_certificates():
-    """All assessments this learner has PASSED, with best score + date, for the Certificates tab."""
+    """All certificates this learner earned: assessment passes + completion tracks."""
     u = current_user()
     db = get_db()
+    certs = []
+
+    # 1) assessment certificates (passed assessments)
     rows = db.execute(
-        "SELECT r.assessment_id, a.title, MAX(r.percent) AS best, MAX(r.taken_at) AS last_date "
+        "SELECT a.title, MAX(r.percent) AS best, MAX(r.taken_at) AS last_date "
         "FROM assessment_results r JOIN assessments a ON a.id = r.assessment_id "
         "WHERE r.emp_id = ? AND r.passed = 1 "
         "GROUP BY r.assessment_id, a.title ORDER BY last_date DESC",
         (u["emp_id"],)
     ).fetchall()
-    certs = []
     for r in rows:
         d = r["last_date"]
         try:
@@ -876,9 +902,27 @@ def api_my_certificates():
         except Exception:
             date_str = ""
         certs.append({
-            "assessment": r["title"], "score": r["best"],
+            "type": "assessment", "assessment": r["title"], "score": r["best"],
             "date": date_str, "name": u["name"], "emp_id": u["emp_id"]
         })
+
+    # 2) completion-track certificates (issued)
+    trows = db.execute(
+        "SELECT cert_name, issued_at FROM issued_certificates WHERE emp_id=? ORDER BY issued_at DESC",
+        (u["emp_id"],)
+    ).fetchall()
+    for t in trows:
+        d = t["issued_at"]
+        try:
+            dt = datetime.fromisoformat(d.replace("Z", "")) if d else None
+            date_str = dt.strftime("%d %B %Y") if dt else ""
+        except Exception:
+            date_str = ""
+        certs.append({
+            "type": "completion", "assessment": t["cert_name"], "score": None,
+            "date": date_str, "name": u["name"], "emp_id": u["emp_id"]
+        })
+
     return jsonify(ok=True, certificates=certs)
 
 
@@ -985,8 +1029,12 @@ def api_submit_assessment():
     )
     db.commit()
 
+    # passing an assessment may complete a certificate track
+    new_certs = _check_and_issue_tracks(u["emp_id"]) if passed else []
+
     return jsonify(ok=True, score=score, total=total, percent=percent,
                    passed=bool(passed), pass_percent=a["pass_percent"],
+                   new_certificates=new_certs,
                    cert={
                        "name": u["name"], "emp_id": u["emp_id"],
                        "assessment": a["title"], "score": percent,
@@ -1221,7 +1269,167 @@ def api_content_complete():
         db.execute("INSERT INTO module_completions (module_id,emp_id,completed_at) VALUES (?,?,?)",
                    (mid, u["emp_id"], datetime.utcnow().isoformat()))
         db.commit()
-    return jsonify(ok=True, msg="Marked complete.")
+    # check if this completion earned any track certificate
+    newly = _check_and_issue_tracks(u["emp_id"])
+    return jsonify(ok=True, msg="Marked complete.", new_certificates=newly)
+
+
+# ===============================================================
+#  Certificate Tracks (completion certificates) — Delivery
+# ===============================================================
+
+def _check_and_issue_tracks(emp_id):
+    """Check all live tracks for this user; issue any newly-earned certificates.
+    Returns list of newly issued cert names."""
+    db = get_db()
+    u = db.execute("SELECT * FROM users WHERE emp_id=?", (emp_id,)).fetchone()
+    if not u:
+        return []
+    tracks = db.execute("SELECT * FROM certificate_tracks WHERE status='live'").fetchall()
+    newly = []
+    for t in tracks:
+        # already issued?
+        got = db.execute("SELECT 1 FROM issued_certificates WHERE track_id=? AND emp_id=?",
+                         (t["id"], emp_id)).fetchone()
+        if got:
+            continue
+        # does this track apply to the user's role?
+        roles = (t["roles"] or "all").strip().lower()
+        if roles not in ("", "all"):
+            desg = (u["designation"] or "").lower()
+            allowed = [r.strip().lower() for r in roles.split(",")]
+            if not any(a and a in desg for a in allowed):
+                continue
+
+        qualifies = True
+
+        # requirement 1: complete all matching live modules of this kind+roles
+        if t["require_modules"]:
+            mods = db.execute("SELECT * FROM content_modules WHERE kind=? AND status='live'",
+                              (t["kind"],)).fetchall()
+            # filter modules that apply to this user's role
+            relevant = []
+            for m in mods:
+                mroles = (m["roles"] or "all").strip().lower()
+                if mroles in ("", "all"):
+                    relevant.append(m)
+                else:
+                    desg = (u["designation"] or "").lower()
+                    if any(a.strip() and a.strip() in desg for a in mroles.split(",")):
+                        relevant.append(m)
+            if len(relevant) == 0:
+                qualifies = False  # nothing to complete yet
+            else:
+                done_ids = {r["module_id"] for r in db.execute(
+                    "SELECT module_id FROM module_completions WHERE emp_id=?", (emp_id,)).fetchall()}
+                for m in relevant:
+                    if m["id"] not in done_ids:
+                        qualifies = False
+                        break
+
+        # requirement 2: pass a specific assessment (if set)
+        if qualifies and t["require_assessment_id"]:
+            passed = db.execute(
+                "SELECT 1 FROM assessment_results WHERE emp_id=? AND assessment_id=? AND passed=1 LIMIT 1",
+                (emp_id, t["require_assessment_id"])).fetchone()
+            if not passed:
+                qualifies = False
+
+        if qualifies:
+            db.execute("INSERT INTO issued_certificates (track_id,emp_id,cert_name,issued_at) VALUES (?,?,?,?)",
+                       (t["id"], emp_id, t["cert_name"], datetime.utcnow().isoformat()))
+            newly.append(t["cert_name"])
+
+    if newly:
+        db.commit()
+    return newly
+
+
+@app.route("/api/admin/cert-tracks")
+@login_required
+def api_admin_cert_tracks():
+    """List certificate tracks (admin/instructor)."""
+    u = _can_manage_content()
+    if u is None:
+        return jsonify(ok=False, msg="Not allowed."), 403
+    db = get_db()
+    rows = db.execute("SELECT * FROM certificate_tracks ORDER BY created_at DESC").fetchall()
+    # attach assessment titles + issue counts
+    out = []
+    for t in rows:
+        d = dict(t)
+        if t["require_assessment_id"]:
+            a = db.execute("SELECT title FROM assessments WHERE id=?", (t["require_assessment_id"],)).fetchone()
+            d["assessment_title"] = a["title"] if a else "(deleted)"
+        else:
+            d["assessment_title"] = None
+        d["issued_count"] = db.execute("SELECT COUNT(*) c FROM issued_certificates WHERE track_id=?", (t["id"],)).fetchone()["c"]
+        out.append(d)
+    # also send assessments list for the dropdown
+    assessments = db.execute("SELECT id,title FROM assessments ORDER BY title").fetchall()
+    return jsonify(ok=True, tracks=out, assessments=[dict(a) for a in assessments],
+                   role_choices=ROLE_CHOICES, is_admin=(u["role"] == "admin"))
+
+
+@app.route("/api/admin/save-cert-track", methods=["POST"])
+@login_required
+def api_admin_save_cert_track():
+    u = _can_manage_content()
+    if u is None:
+        return jsonify(ok=False, msg="Not allowed."), 403
+    d = request.get_json(force=True)
+    tid = d.get("id")
+    cert_name = (d.get("cert_name") or "").strip()
+    kind = (d.get("kind") or "training").strip()
+    roles = (d.get("roles") or "all").strip() or "all"
+    require_modules = 1 if d.get("require_modules", True) else 0
+    req_assess = d.get("require_assessment_id")
+    if req_assess in ("", "none", "0", 0):
+        req_assess = None
+
+    if not cert_name:
+        return jsonify(ok=False, msg="Certificate name is required."), 400
+    if kind not in ("induction", "training"):
+        kind = "training"
+    if not require_modules and not req_assess:
+        return jsonify(ok=False, msg="Pick at least one requirement (modules and/or an assessment)."), 400
+
+    status = "live" if u["role"] == "admin" else "pending"
+    db = get_db()
+    if tid:
+        new_status = "live" if u["role"] == "admin" else "pending"
+        db.execute("UPDATE certificate_tracks SET cert_name=?,kind=?,roles=?,require_modules=?,require_assessment_id=?,status=? WHERE id=?",
+                   (cert_name, kind, roles, require_modules, req_assess, new_status, tid))
+    else:
+        db.execute("INSERT INTO certificate_tracks (cert_name,kind,roles,require_modules,require_assessment_id,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?)",
+                   (cert_name, kind, roles, require_modules, req_assess, status, u["emp_id"], datetime.utcnow().isoformat()))
+    db.commit()
+    msg = "Certificate track saved." if status == "live" else "Track submitted — pending admin approval."
+    return jsonify(ok=True, msg=msg)
+
+
+@app.route("/api/admin/approve-cert-track", methods=["POST"])
+@admin_required
+def api_admin_approve_cert_track():
+    d = request.get_json(force=True)
+    db = get_db()
+    db.execute("UPDATE certificate_tracks SET status='live' WHERE id=?", (d.get("id"),))
+    db.commit()
+    return jsonify(ok=True, msg="Track approved.")
+
+
+@app.route("/api/admin/delete-cert-track", methods=["POST"])
+@login_required
+def api_admin_delete_cert_track():
+    u = _can_manage_content()
+    if u is None:
+        return jsonify(ok=False, msg="Not allowed."), 403
+    d = request.get_json(force=True)
+    db = get_db()
+    db.execute("DELETE FROM certificate_tracks WHERE id=?", (d.get("id"),))
+    db.execute("DELETE FROM issued_certificates WHERE track_id=?", (d.get("id"),))
+    db.commit()
+    return jsonify(ok=True, msg="Track deleted.")
 
 
 # ---------------------------------------------------------------
