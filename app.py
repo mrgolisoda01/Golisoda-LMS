@@ -34,8 +34,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 #  Basic setup
 # ---------------------------------------------------------------
 app = Flask(__name__)
-# IMPORTANT: change this secret to any long random string before going live
-app.secret_key = "CHANGE-THIS-TO-A-LONG-RANDOM-SECRET-STRING-2026"
+# Strong random secret key (set for production). Keep this private.
+app.secret_key = os.environ.get("SECRET_KEY", "9fe42eef27a6bfbbd6764513ed4d5b10ec0e2b4e803984c917b3d89cd8960016")
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "golisoda.db")
 
@@ -323,6 +323,27 @@ def api_login():
     db.commit()
     dest = url_for("admin_page") if u["role"] == "admin" else url_for("portal_page")
     return jsonify(ok=True, redirect=dest)
+
+
+@app.route("/api/change-password", methods=["POST"])
+@login_required
+def api_change_password():
+    """Any logged-in user can change their own password (needs current password)."""
+    u = current_user()
+    d = request.get_json(force=True)
+    current_pw = d.get("current_password") or ""
+    new_pw = d.get("new_password") or ""
+    if not current_pw or not new_pw:
+        return jsonify(ok=False, msg="Enter your current and new password."), 400
+    if not check_password_hash(u["password_hash"], current_pw):
+        return jsonify(ok=False, msg="Your current password is incorrect."), 401
+    if len(new_pw) < 6:
+        return jsonify(ok=False, msg="New password must be at least 6 characters."), 400
+    db = get_db()
+    db.execute("UPDATE users SET password_hash=?, must_reset=0 WHERE emp_id=?",
+               (generate_password_hash(new_pw), u["emp_id"]))
+    db.commit()
+    return jsonify(ok=True, msg="Password changed successfully.")
 
 
 @app.route("/api/logout", methods=["POST"])
