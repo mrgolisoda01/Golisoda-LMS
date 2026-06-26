@@ -435,13 +435,12 @@ async function loadCertificates(){
 function openCert(c){
   $('certName').textContent = c.name;
   $('certAssessment').textContent = c.assessment;
-  // completion certs have no score — show only date; assessment certs show score + date
-  const scoreEl = $('certScore').parentElement;
+  // completion certs have no score — assessment certs show score + date
+  const wrap = $('certScoreWrap');
   if(c.score!=null){
-    $('certScore').textContent = c.score + '%';
-    scoreEl.innerHTML = 'with a score of <b id="certScore">'+c.score+'%</b> &nbsp;·&nbsp; <span id="certDate">'+esc(c.date)+'</span>';
+    wrap.innerHTML = 'with a score of <b>'+c.score+'%</b> &nbsp;·&nbsp; ' + esc(c.date);
   } else {
-    scoreEl.innerHTML = 'Awarded on <span id="certDate">'+esc(c.date)+'</span>';
+    wrap.innerHTML = 'Awarded on ' + esc(c.date);
   }
   document.querySelector('#tab-certs .sectiontitle').style.display='none';
   $('certListBox').style.display='none';
