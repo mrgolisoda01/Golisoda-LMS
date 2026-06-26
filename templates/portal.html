@@ -65,6 +65,11 @@
   .cert-mascot{position:absolute;right:14px;bottom:10px;height:120px;opacity:.96;pointer-events:none}
   @media(max-width:560px){.cert-mascot{height:80px;opacity:.5}.cert .who{font-size:24px}}
   @media print{.topbar,.pt-tabs,.noprint{display:none!important}body{background:#fff}}
+  /* subtle brand watermark */
+  body::before{content:"";position:fixed;inset:0;background-image:var(--wm,none);
+    background-repeat:no-repeat;background-position:center 62%;background-size:420px;
+    opacity:.04;pointer-events:none;z-index:0}
+  .topbar,.pt-tabs,.wrap{position:relative;z-index:1}
   /* file module viewer */
   .fm-ov{position:fixed;inset:0;background:rgba(8,30,40,.6);display:none;align-items:center;justify-content:center;padding:14px;z-index:80}
   .fm-ov.show{display:flex}
@@ -237,6 +242,8 @@
     var cm = document.getElementById('certMascot'); if(cm) cm.src = BRAND.mascot;
     var sc = document.getElementById('sigChandru'); if(sc) sc.src = BRAND.sign_chandru;
     var sd = document.getElementById('sigDharani'); if(sd) sd.src = BRAND.sign_dharani;
+    // subtle background watermark
+    document.body.style.setProperty('--wm', 'url('+BRAND.mascot+')');
     // certificate background as the border gradient via CSS var
     var card = document.getElementById('certCard');
     if(card){ card.querySelector('.cert-inner').style.setProperty('--cert-bg', 'url('+BRAND.cert_bg+')'); }
